@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Caption {result.metadata['image_caption']}")
         if result.candidates_path:
             print(f"Candidates {result.candidates_path}")
+            print(f"Contact sheet {result.metadata['candidate_contact_sheet']}")
         return 0
 
     if args.command == "refine":
@@ -196,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Caption {result.metadata['image_caption']}")
         if result.candidates_path:
             print(f"Candidates {result.candidates_path}")
+            print(f"Contact sheet {result.metadata['candidate_contact_sheet']}")
         print(f"Initial similarity {result.metadata['initial_similarity_score']}")
         return 0
 

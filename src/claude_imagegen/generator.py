@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnostics
 from .palette import COLOR_RGB, RGB, extract_reference_palette
@@ -160,7 +160,14 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
 
     best_image.save(image_path)
     _write_progress(progress_path, progress)
-    candidates_path, candidate_entries = _write_candidate_artifacts(output_dir, top_candidates)
+    candidates_path, candidate_contact_sheet, candidate_entries = _write_candidate_artifacts(
+        output_dir,
+        top_candidates,
+        prompt=options.prompt,
+        caption_backend=options.caption_backend,
+        caption_model=options.caption_model,
+        caption_device=options.caption_device,
+    )
     metadata_scene_plan = best_scene_plan or scene_plan
     caption_result = caption_image(
         best_image,
@@ -216,6 +223,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
         "candidate_count": len(candidate_entries),
         "candidate_index": str(candidates_path) if candidates_path else None,
+        "candidate_contact_sheet": str(candidate_contact_sheet) if candidate_contact_sheet else None,
         "candidate_images": [entry["image"] for entry in candidate_entries],
         "revision_hints": _revision_hints(
             spec=spec,
@@ -502,9 +510,14 @@ def _remember_candidate(candidates: list[CandidateSnapshot], snapshot: Candidate
 def _write_candidate_artifacts(
     output_dir: Path,
     candidates: list[CandidateSnapshot],
-) -> tuple[Path | None, list[dict[str, object]]]:
+    *,
+    prompt: str,
+    caption_backend: str,
+    caption_model: str | None,
+    caption_device: str,
+) -> tuple[Path | None, Path | None, list[dict[str, object]]]:
     if not candidates:
-        return None, []
+        return None, None, []
 
     candidates_dir = output_dir / "candidates"
     candidates_dir.mkdir(parents=True, exist_ok=True)
@@ -514,6 +527,18 @@ def _write_candidate_artifacts(
     for rank, candidate in enumerate(sorted_candidates, start=1):
         image_path = candidates_dir / f"candidate-{rank:03d}-iter-{candidate.iteration:03d}.png"
         candidate.image.save(image_path)
+        caption_result = caption_image(
+            candidate.image,
+            prompt=prompt,
+            backend=caption_backend,
+            model_name=caption_model,
+            device=caption_device,
+        )
+        caption_diagnostics = (
+            CaptionDiagnostics((), (), (), ())
+            if caption_result.backend == "none"
+            else caption_prompt_diagnostics(prompt, caption_result.caption)
+        )
         entries.append(
             {
                 "rank": rank,
@@ -524,12 +549,94 @@ def _write_candidate_artifacts(
                 "reference_score": round(candidate.score.reference_score, 6),
                 "score_details": {key: round(value, 6) for key, value in candidate.score.details.items()},
                 "met_threshold": candidate.met_threshold,
+                "caption": caption_result.caption,
+                "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
+                "caption_missing_objects": list(caption_diagnostics.missing_objects),
+                "caption_missing_colors": list(caption_diagnostics.missing_colors),
+                "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
+                "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
             }
         )
 
+    contact_sheet_path = _write_candidate_contact_sheet(candidates_dir, sorted_candidates, entries)
     candidates_path = output_dir / "candidates.json"
     candidates_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
-    return candidates_path, entries
+    return candidates_path, contact_sheet_path, entries
+
+
+def _write_candidate_contact_sheet(
+    candidates_dir: Path,
+    candidates: list[CandidateSnapshot],
+    entries: list[dict[str, object]],
+) -> Path:
+    max_thumb_width = 360
+    max_thumb_height = 240
+    thumbnails: list[Image.Image] = []
+    for candidate in candidates:
+        thumbnail = candidate.image.copy()
+        thumbnail.thumbnail((max_thumb_width, max_thumb_height))
+        thumbnails.append(thumbnail)
+
+    padding = 12
+    label_height = 46
+    columns = min(3, max(1, len(thumbnails)))
+    rows = (len(thumbnails) + columns - 1) // columns
+    tile_width = max(thumbnail.width for thumbnail in thumbnails)
+    tile_height = max(thumbnail.height for thumbnail in thumbnails) + label_height
+    sheet = Image.new(
+        "RGB",
+        (
+            columns * tile_width + (columns + 1) * padding,
+            rows * tile_height + (rows + 1) * padding,
+        ),
+        (245, 245, 242),
+    )
+    draw = ImageDraw.Draw(sheet)
+
+    for index, (thumbnail, entry) in enumerate(zip(thumbnails, entries)):
+        row = index // columns
+        column = index % columns
+        x = padding + column * (tile_width + padding)
+        y = padding + row * (tile_height + padding)
+        sheet.paste(thumbnail, (x, y))
+        label_y = y + thumbnail.height + 5
+        label = _truncate_text_to_width(
+            draw,
+            f"#{entry['rank']} iter {entry['iteration']} score {entry['total_score']:.3f}",
+            tile_width,
+        )
+        caption = _truncate_text_to_width(draw, str(entry.get("caption", "")), tile_width)
+        draw.text((x, label_y), label, fill=(25, 28, 32))
+        if caption:
+            draw.text((x, label_y + 17), caption, fill=(55, 58, 64))
+
+    contact_sheet_path = candidates_dir / "contact-sheet.png"
+    sheet.save(contact_sheet_path)
+    return contact_sheet_path
+
+
+def _truncate_text_to_width(draw: ImageDraw.ImageDraw, text: str, max_width: int) -> str:
+    if not text:
+        return ""
+    if draw.textbbox((0, 0), text)[2] <= max_width:
+        return text
+
+    suffix = "..."
+    if draw.textbbox((0, 0), suffix)[2] > max_width:
+        return ""
+
+    low = 0
+    high = len(text)
+    best = suffix
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = text[:midpoint].rstrip() + suffix
+        if draw.textbbox((0, 0), candidate)[2] <= max_width:
+            best = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return best
 
 
 def _write_progress(path: Path, rows: list[dict[str, object]]) -> None:

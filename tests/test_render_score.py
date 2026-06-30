@@ -1,11 +1,11 @@
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from claude_imagegen.caption import CaptionResult
 import claude_imagegen.generator as generator_module
-from claude_imagegen.generator import GenerateOptions, generate_image
+from claude_imagegen.generator import GenerateOptions, _truncate_text_to_width, generate_image
 from claude_imagegen.prompt import parse_prompt
 from claude_imagegen.render import cap_dimensions, render_candidate
 from claude_imagegen.scene import build_initial_candidate
@@ -227,13 +227,35 @@ def test_generate_can_save_ranked_candidate_artifacts(tmp_path: Path):
     assert candidates_dir.exists()
     assert result.metadata["candidate_count"] == 2
     assert result.metadata["candidate_index"] == str(candidates_path)
+    assert result.metadata["candidate_contact_sheet"] == str(candidates_dir / "contact-sheet.png")
     assert len(result.metadata["candidate_images"]) == 2
+    assert Path(result.metadata["candidate_contact_sheet"]).exists()
 
     candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
     assert [candidate["rank"] for candidate in candidates] == [1, 2]
     assert candidates[0]["total_score"] >= candidates[1]["total_score"]
     for candidate in candidates:
+        assert "caption" in candidate
+        assert "caption_similarity_score" in candidate
+        assert "caption_missing_objects" in candidate
+        assert "caption_missing_colors" in candidate
         image_path = Path(candidate["image"])
         assert image_path.exists()
         with Image.open(image_path) as image:
             assert image.size == (96, 64)
+    with Image.open(result.metadata["candidate_contact_sheet"]) as contact_sheet:
+        assert contact_sheet.width >= 96 * 2
+        assert contact_sheet.height > 64
+
+
+def test_contact_sheet_label_truncation_fits_tile_width():
+    image = Image.new("RGB", (1, 1))
+    draw = ImageDraw.Draw(image)
+    text = "a very long generated caption that would otherwise overlap neighboring candidate tiles"
+
+    truncated = _truncate_text_to_width(draw, text, max_width=90)
+
+    assert len(truncated) < len(text)
+    assert truncated.endswith("...")
+    text_width = draw.textbbox((0, 0), truncated)[2]
+    assert text_width <= 90

@@ -117,8 +117,8 @@ Outputs:
 - `image.png`: generated RGB image.
 - `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, caption missing/unexpected evidence, candidate artifact paths, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
 - `progress.csv`: score per iteration.
-- `candidates.json`: optional ranked candidate index when `--save-candidates N` is passed.
-- `candidates/`: optional top-N candidate PNGs for visual comparison.
+- `candidates.json`: optional ranked candidate index when `--save-candidates N` is passed, including score details, captions, and caption missing/unexpected evidence for each candidate.
+- `candidates/`: optional top-N candidate PNGs plus `contact-sheet.png` for visual comparison.
 - `pixels.csv`: optional explicit `x,y,r,g,b` table when `--pixel-csv` is passed.
 
 ## Reference and Initial Images
@@ -148,7 +148,7 @@ claude-imagegen refine \
 
 The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `parent_caption`, and `parent_caption_similarity_score`. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
 
-Use `--save-candidates N` on either `generate` or `refine` when Claude Code should inspect alternatives instead of trusting only the best-scored final image. The generator writes `candidates.json` plus `candidates/candidate-*.png`; each entry records rank, iteration, image path, total/text/reference scores, score details, and threshold status. This is useful when several candidates have close scores or when the best score is visually worse than a lower-ranked alternative.
+Use `--save-candidates N` on either `generate` or `refine` when Claude Code should inspect alternatives instead of trusting only the best-scored final image. The generator writes `candidates.json`, `candidates/candidate-*.png`, and `candidates/contact-sheet.png`; each index entry records rank, iteration, image path, total/text/reference scores, score details, threshold status, candidate caption, caption similarity, and candidate-level missing/unexpected prompt evidence. This is useful when several candidates have close scores or when the best score is visually worse than a lower-ranked alternative.
 
 ## Similarity Backends
 

@@ -53,12 +53,14 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     progress_path = output_dir / "progress.csv"
     pixels_path = output_dir / "pixels.csv"
     candidates_path = output_dir / "candidates.json"
+    contact_sheet_path = output_dir / "candidates" / "contact-sheet.png"
 
     assert image_path.exists()
     assert metadata_path.exists()
     assert progress_path.exists()
     assert pixels_path.exists()
     assert candidates_path.exists()
+    assert contact_sheet_path.exists()
     assert "image.png" in completed.stdout
     assert "Caption" in completed.stdout
 
@@ -78,6 +80,7 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert metadata["caption_similarity_score"] > 0.15
     assert metadata["candidate_count"] == 2
     assert metadata["candidate_index"] == str(candidates_path)
+    assert metadata["candidate_contact_sheet"] == str(contact_sheet_path)
 
     with progress_path.open(newline="", encoding="utf-8") as handle:
         progress_rows = list(csv.DictReader(handle))
@@ -85,6 +88,8 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
 
     candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
     assert len(candidates) == 2
+    assert all(candidate["caption"] for candidate in candidates)
+    assert all("caption_similarity_score" in candidate for candidate in candidates)
     assert all((output_dir / candidate["image"]).exists() or Path(candidate["image"]).exists() for candidate in candidates)
 
     with pixels_path.open(newline="", encoding="utf-8") as handle:

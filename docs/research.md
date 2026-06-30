@@ -63,7 +63,7 @@ Good future similarity/refinement signals should be layered rather than singular
 4. Preference/aesthetic reward such as ImageReward for choosing among multiple aligned candidates.
 5. Hard local checks for resolution, aspect ratio, nonblankness, contrast, and requested object/color evidence.
 
-The current `--save-candidates N` option supports a simple version of candidate ranking. It saves the top N scored images and a `candidates.json` index so Claude Code can inspect alternatives when scores are close or when the numeric best candidate is not the best visual continuation.
+The current `--save-candidates N` option supports a simple version of candidate ranking. It saves the top N scored images, a `candidates.json` index, and a visual `contact-sheet.png` so Claude Code can inspect alternatives when scores are close or when the numeric best candidate is not the best visual continuation. Each candidate index entry carries its own caption similarity and caption missing/unexpected evidence, making selection less dependent on the final image's score alone.
 
 For iterative editing, prompt alignment is not enough. Each refinement run should also measure continuity against the previous image. The current `refine` command records `initial_similarity_score` between the new output and the parent `image.png`, plus lineage metadata (`refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`). This gives Claude Code two independent signals: whether the image still resembles the previous iteration, and whether it moved closer to the revised text/reference target.
 
