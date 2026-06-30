@@ -278,7 +278,10 @@ When `quality-report.json` reports `status: "revise"`, its `next_actions` list i
 ```bash
 python -m pytest
 python -m claude_imagegen.cli generate --prompt "red sun over blue ocean" --output-dir claude-imagegen-output/smoke --width 160 --height 100 --max-iterations 12 --threshold 0.1
+claude-imagegen verify --output-dir claude-imagegen-output/verification --size 320x192 --size 768x432 --size 1024x640
 ```
+
+`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one CLIP/BLIP-backed verification case when local `torch`, `transformers`, and model weights are available.
 
 If the local Claude Code build supports plugin validation:
 

@@ -6,6 +6,7 @@ import sys
 
 from .generator import GenerateOptions, generate_image
 from .refine import RefineOptions, refine_image
+from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,6 +129,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable local scene-plan refinement between iterations.",
     )
     refine.set_defaults(auto_refine=True)
+
+    verify = subcommands.add_parser("verify", help="Run a local generation/refinement verification suite.")
+    verify.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/verification"))
+    verify.add_argument(
+        "--size",
+        action="append",
+        type=_parse_cli_size,
+        dest="sizes",
+        help="Verification output size as WIDTHxHEIGHT. Repeat for multiple sizes.",
+    )
+    verify.add_argument(
+        "--prompt",
+        default="cinematic red robot portrait over blue ocean with clouds, reflections, and atmospheric light",
+        help="Prompt used for generated verification cases.",
+    )
+    verify.add_argument(
+        "--refine-prompt",
+        default="cinematic red robot portrait over blue ocean with brighter clouds and stronger water reflections",
+        help="Prompt used for the auto-candidate refinement verification case.",
+    )
+    verify.add_argument("--max-iterations", type=int, default=3)
+    verify.add_argument("--threshold", type=float, default=0.99)
+    verify.add_argument("--save-candidates", type=int, default=2)
+    verify.add_argument("--strong-model", action="store_true", help="Also run one CLIP/BLIP-backed verification case.")
+    verify.add_argument(
+        "--strong-model-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional CLIP/BLIP verification.",
+    )
+    verify.add_argument("--similarity-model", help="Optional CLIP model id/path for --strong-model.")
+    verify.add_argument("--caption-model", help="Optional BLIP model id/path for --strong-model.")
     return parser
 
 
@@ -209,8 +242,38 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Initial similarity {result.metadata['initial_similarity_score']}")
         return 0
 
+    if args.command == "verify":
+        report = run_verification(
+            VerifyOptions(
+                output_dir=args.output_dir,
+                sizes=tuple(args.sizes) if args.sizes else DEFAULT_VERIFY_SIZES,
+                prompt=args.prompt,
+                refine_prompt=args.refine_prompt,
+                max_iterations=args.max_iterations,
+                threshold=args.threshold,
+                save_candidates=args.save_candidates,
+                strong_model=args.strong_model,
+                strong_model_device=args.strong_model_device,
+                similarity_model=args.similarity_model,
+                caption_model=args.caption_model,
+            )
+        )
+        print(f"Verification {report['status']} ({report['report_path']})")
+        print(f"Cases {len(report['cases'])}")
+        print(f"Strong model {report['strong_model']}")
+        for case in report["cases"]:
+            print(f"Case {case['type']} {case['status']} {case['size']} {case.get('quality_status', 'none')} {case['output_dir']}")
+        return 0 if report["status"] == "pass" else 1
+
     parser.error(f"Unknown command: {args.command}")
     return 2
+
+
+def _parse_cli_size(value: str) -> tuple[int, int]:
+    try:
+        return parse_size(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 if __name__ == "__main__":

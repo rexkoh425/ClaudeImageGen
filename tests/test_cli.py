@@ -402,3 +402,61 @@ def test_cli_refine_can_auto_select_saved_candidate_rank(tmp_path: Path):
     assert metadata["parent_candidate_selection_reasons"] == ["forced higher score for test"]
     assert metadata["parent_image"] == str(selected_image)
     assert metadata["initial_image"] == str(selected_image)
+
+
+def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
+    output_dir = tmp_path / "verify-suite"
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "verify",
+            "--output-dir",
+            str(output_dir),
+            "--size",
+            "80x48",
+            "--size",
+            "128x72",
+            "--max-iterations",
+            "2",
+            "--threshold",
+            "0.99",
+            "--save-candidates",
+            "2",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    report_path = output_dir / "verification-report.json"
+    assert "Verification" in completed.stdout
+    assert str(report_path) in completed.stdout
+    assert report_path.exists()
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "pass"
+    assert [case["size"] for case in report["cases"] if case["type"] == "generate"] == ["80x48", "128x72"]
+    assert any(case["type"] == "refine" for case in report["cases"])
+    assert report["strong_model"] == "not-requested"
+
+    for case in report["cases"]:
+        case_dir = Path(case["output_dir"])
+        assert (case_dir / "image.png").exists()
+        assert (case_dir / "metadata.json").exists()
+        assert (case_dir / "quality-report.json").exists()
+        if case["type"] == "generate":
+            metadata = json.loads((case_dir / "metadata.json").read_text(encoding="utf-8"))
+            assert f"{metadata['width']}x{metadata['height']}" == case["size"]
+            assert (case_dir / "candidates.json").exists()
+            assert (case_dir / "candidates" / "contact-sheet.png").exists()
+        if case["type"] == "refine":
+            metadata = json.loads((case_dir / "metadata.json").read_text(encoding="utf-8"))
+            assert metadata["parent_candidate_selection"] == "auto"
+            assert metadata["initial_similarity_score"] is not None
