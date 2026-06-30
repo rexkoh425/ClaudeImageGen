@@ -3,6 +3,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from claude_imagegen.caption import CaptionResult
+import claude_imagegen.generator as generator_module
 from claude_imagegen.generator import GenerateOptions, generate_image
 from claude_imagegen.prompt import parse_prompt
 from claude_imagegen.render import cap_dimensions, render_candidate
@@ -172,3 +174,35 @@ def test_generate_metadata_records_caption_backcheck(tmp_path: Path):
     assert "ocean" in result.metadata["image_caption"]
     assert 0.0 <= result.metadata["caption_similarity_score"] <= 1.0
     assert result.metadata["caption_similarity_score"] > 0.15
+
+
+def test_generate_revision_hints_include_caption_missing_evidence(tmp_path: Path, monkeypatch):
+    def bad_caption(*args, **kwargs):
+        return CaptionResult(
+            caption="a blue bowl with white flowers on it",
+            prompt_similarity_score=0.150769,
+            backend="transformers-blip",
+            model_name="Salesforce/blip-image-captioning-base",
+            requested_device="auto",
+            effective_device="cuda",
+            tokens=("a", "blue", "bowl", "with", "white", "flowers", "on", "it"),
+        )
+
+    monkeypatch.setattr(generator_module, "caption_image", bad_caption)
+
+    result = generate_image(
+        GenerateOptions(
+            prompt="red sun over blue ocean with clouds",
+            output_dir=tmp_path / "out",
+            width=80,
+            height=50,
+            max_iterations=2,
+            threshold=0.99,
+            caption_backend="transformers-blip",
+        )
+    )
+
+    assert result.metadata["caption_missing_objects"] == ["cloud", "ocean", "sun"]
+    assert result.metadata["caption_missing_colors"] == ["red"]
+    assert result.metadata["caption_unexpected_objects"] == ["flower"]
+    assert any("caption missed requested objects" in hint for hint in result.metadata["revision_hints"])

@@ -716,6 +716,8 @@ def test_scene_plan_metadata_gives_claude_revision_hints_when_alignment_is_low(t
     assert result.metadata["met_threshold"] is False
     assert result.metadata["auto_refine"] is False
     assert result.metadata["revision_hints"] == [
+        "The image caption missed requested objects: ocean, sun. Revise the scene plan so those objects read clearly in the rendered image.",
+        "The image caption missed requested colors: blue, red. Use larger, clearer color regions or lighting accents for those colors.",
         "Add missing scene-plan objects: ocean, sun.",
         "Strengthen requested colors: red, blue. Use palette entries, background stops, fills, materials, or lights that visibly contain them.",
         "Increase prompt-object evidence with explicit shapes, terrain, materials, motifs, or elements for: ocean, sun.",

@@ -114,7 +114,7 @@ claude-imagegen generate \
 Outputs:
 
 - `image.png`: generated RGB image.
-- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
+- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, caption missing/unexpected evidence, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
 - `progress.csv`: score per iteration.
 - `pixels.csv`: optional explicit `x,y,r,g,b` table when `--pixel-csv` is passed.
 
@@ -167,7 +167,7 @@ claude-imagegen generate \
 
 ## Caption Backchecking
 
-Every run defaults to `--caption-backend local`, a deterministic offline caption proxy that describes visible scene evidence such as sun, ocean, clouds, mountains, forest, or city structure. The generated `metadata.json` records `image_caption`, `caption_similarity_score`, `caption_backend`, `caption_model`, `caption_device`, and `effective_caption_device`.
+Every run defaults to `--caption-backend local`, a deterministic offline caption proxy that describes visible scene evidence such as sun, ocean, clouds, mountains, forest, or city structure. The generated `metadata.json` records `image_caption`, `caption_similarity_score`, `caption_backend`, `caption_model`, `caption_device`, `effective_caption_device`, `caption_missing_objects`, `caption_missing_colors`, `caption_unexpected_objects`, and `caption_unexpected_colors`.
 
 For stronger image-to-text checking, use the optional Transformers BLIP backend when `torch`, `transformers`, and the selected model are available:
 
@@ -183,7 +183,7 @@ claude-imagegen generate \
   --caption-device auto
 ```
 
-`--caption-device auto` uses CUDA through PyTorch when available, otherwise CPU. Caption backchecking is a second signal: it helps Claude Code spot when the image appears to contain different objects than the prompt asked for, even if the local cosine score is high.
+`--caption-device auto` uses CUDA through PyTorch when available, otherwise CPU. Caption backchecking is a second signal: it helps Claude Code spot when the image appears to contain different objects than the prompt asked for, even if the local cosine score is high. When caption similarity is low, missing requested objects or colors are also promoted into `revision_hints` so the next scene plan can make those elements visually explicit.
 
 ## Claude Code Plugin Layout
 
@@ -262,7 +262,7 @@ Scene plans have two composition levels:
 
 A 2048x2048 image has 4,194,304 pixels. A literal RGB table has 4,194,304 rows before metadata, and asking an LLM to emit that table directly would usually mean millions of tokens. This prototype therefore renders pixels programmatically and only exports `pixels.csv` on request.
 
-When `met_threshold` is false, `metadata.json` includes `revision_hints` with concrete scene-plan changes for Claude Code to make next, such as adding missing objects, strengthening requested colors, increasing contrast, or moving closer to a reference image. If a scene plan is provided, the generator also performs bounded local auto-refinement between iterations: it can add missing prompt objects such as clouds, add a matching cloud layer, and increase contrast or saturation when the local scorer shows weak evidence. If a reference or initial image is provided, `reference_palette` and `initial_palette` expose extracted hex colors that Claude can fold into the next scene plan. `image_caption` and `caption_similarity_score` add a direct "what does this look like" check before revising the next scene plan. The intent is to keep the expensive semantic iteration in Claude Code while local work remains deterministic rendering, scoring, caption backchecking, and targeted refinement.
+When `met_threshold` is false, `metadata.json` includes `revision_hints` with concrete scene-plan changes for Claude Code to make next, such as adding missing objects, strengthening requested colors, increasing contrast, or moving closer to a reference image. If a scene plan is provided, the generator also performs bounded local auto-refinement between iterations: it can add missing prompt objects such as clouds, add a matching cloud layer, and increase contrast or saturation when the local scorer shows weak evidence. If a reference or initial image is provided, `reference_palette` and `initial_palette` expose extracted hex colors that Claude can fold into the next scene plan. `image_caption`, `caption_similarity_score`, and `caption_missing_objects` / `caption_missing_colors` add a direct "what does this look like" check before revising the next scene plan. The intent is to keep the expensive semantic iteration in Claude Code while local work remains deterministic rendering, scoring, caption backchecking, and targeted refinement.
 
 ## Validation
 

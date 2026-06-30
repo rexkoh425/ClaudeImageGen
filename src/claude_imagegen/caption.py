@@ -23,6 +23,14 @@ class CaptionResult:
     tokens: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class CaptionDiagnostics:
+    missing_objects: tuple[str, ...]
+    missing_colors: tuple[str, ...]
+    unexpected_objects: tuple[str, ...]
+    unexpected_colors: tuple[str, ...]
+
+
 def caption_image(
     image: Image.Image,
     *,
@@ -65,6 +73,31 @@ def caption_image(
     )
 
 
+def caption_prompt_diagnostics(prompt: str, caption: str) -> CaptionDiagnostics:
+    if not caption.strip():
+        prompt_spec = parse_prompt(prompt)
+        return CaptionDiagnostics(
+            missing_objects=tuple(sorted(set(prompt_spec.objects))),
+            missing_colors=tuple(sorted(set(prompt_spec.color_words))),
+            unexpected_objects=(),
+            unexpected_colors=(),
+        )
+
+    prompt_spec = parse_prompt(prompt)
+    caption_spec = parse_prompt(caption)
+    prompt_objects = set(prompt_spec.objects)
+    caption_objects = set(caption_spec.objects)
+    prompt_colors = set(prompt_spec.color_words)
+    caption_colors = set(caption_spec.color_words)
+
+    return CaptionDiagnostics(
+        missing_objects=tuple(sorted(prompt_objects - caption_objects)),
+        missing_colors=tuple(sorted(prompt_colors - caption_colors)),
+        unexpected_objects=tuple(sorted(caption_objects - prompt_objects)),
+        unexpected_colors=tuple(sorted(caption_colors - prompt_colors)),
+    )
+
+
 def caption_prompt_similarity(prompt: str, caption: str) -> float:
     if not caption.strip():
         return 0.0
@@ -89,9 +122,14 @@ def caption_prompt_similarity(prompt: str, caption: str) -> float:
 def _local_caption(image: Image.Image) -> str:
     array = np.asarray(image, dtype=np.float32)
     height = array.shape[0]
+    width = array.shape[1]
     upper = array[: max(1, height // 2)]
     middle = array[height // 3 : max(height // 3 + 1, int(height * 0.72))]
     lower = array[height // 2 :]
+    center = array[
+        int(height * 0.25) : max(int(height * 0.25) + 1, int(height * 0.74)),
+        int(width * 0.25) : max(int(width * 0.25) + 1, int(width * 0.75)),
+    ]
 
     phrases: list[str] = []
     if _warm_presence(upper) >= 0.10:
@@ -104,6 +142,9 @@ def _local_caption(image: Image.Image) -> str:
 
     if _edge_density(middle) >= 0.16:
         phrases.append(f"{_dominant_color_name(middle)} mountains")
+
+    if _robot_portrait_presence(center) >= 0.18:
+        phrases.append(f"{_dominant_color_name(center)} robot portrait")
 
     if _blue_presence(lower) >= 0.10:
         phrases.append("blue ocean")
@@ -118,6 +159,14 @@ def _local_caption(image: Image.Image) -> str:
         phrases.append(f"{_dominant_color_name(array)} abstract composition")
 
     return "a local image showing " + _join_phrases(_dedupe(phrases))
+
+
+def _robot_portrait_presence(array: np.ndarray) -> float:
+    warm_shape = _warm_presence(array)
+    internal_edges = _edge_density(array)
+    accent_blue = _blue_presence(array)
+    dark_detail = _dark_presence(array)
+    return _clamp01(0.44 * warm_shape + 0.28 * internal_edges + 0.18 * accent_blue + 0.10 * dark_detail)
 
 
 def _blip_caption(image: Image.Image, *, model_name: str, device: str) -> tuple[str, str]:

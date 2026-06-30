@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .caption import caption_image
+from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnostics
 from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
 from .prompt import parse_prompt
@@ -143,6 +143,11 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         model_name=options.caption_model,
         device=options.caption_device,
     )
+    caption_diagnostics = (
+        CaptionDiagnostics((), (), (), ())
+        if caption_result.backend == "none"
+        else caption_prompt_diagnostics(options.prompt, caption_result.caption)
+    )
 
     metadata: dict[str, object] = {
         "prompt": options.prompt,
@@ -179,12 +184,18 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "image_caption": caption_result.caption,
         "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
         "caption_tokens": list(caption_result.tokens),
+        "caption_missing_objects": list(caption_diagnostics.missing_objects),
+        "caption_missing_colors": list(caption_diagnostics.missing_colors),
+        "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
+        "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
         "revision_hints": _revision_hints(
             spec=spec,
             score=best_score,
             threshold=options.threshold,
             scene_plan=metadata_scene_plan,
             reference_image=options.reference_image,
+            caption_diagnostics=caption_diagnostics,
+            caption_similarity_score=caption_result.prompt_similarity_score,
         ),
         "seed": options.seed,
         "objects": list(spec.objects),
@@ -394,14 +405,32 @@ def _revision_hints(
     threshold: float,
     scene_plan: ScenePlan | None,
     reference_image: Path | None,
+    caption_diagnostics: CaptionDiagnostics,
+    caption_similarity_score: float,
 ) -> list[str]:
-    if score.total_score >= threshold:
+    caption_object_gap = bool(caption_diagnostics.missing_objects) and caption_similarity_score < 0.46
+    caption_color_gap = bool(caption_diagnostics.missing_colors) and caption_similarity_score < 0.40
+    if score.total_score >= threshold and not caption_object_gap and not caption_color_gap:
         return []
 
     hints: list[str] = []
     spec_objects = tuple(getattr(spec, "objects", ()))
     spec_color_words = tuple(getattr(spec, "color_words", ()))
     spec_mood_words = tuple(getattr(spec, "mood_words", ()))
+
+    if caption_object_gap:
+        hints.append(
+            "The image caption missed requested objects: "
+            f"{', '.join(caption_diagnostics.missing_objects)}. "
+            "Revise the scene plan so those objects read clearly in the rendered image."
+        )
+
+    if caption_color_gap:
+        hints.append(
+            "The image caption missed requested colors: "
+            f"{', '.join(caption_diagnostics.missing_colors)}. "
+            "Use larger, clearer color regions or lighting accents for those colors."
+        )
 
     if scene_plan and spec_objects:
         plan_objects = {obj.kind for obj in scene_plan.objects}
