@@ -2,15 +2,16 @@
 
 ## Goal
 
-Build a Claude Code plugin prototype that accepts a required text prompt plus optional reference image and optional initial image, then generates a capped 720x480 PNG in the current project directory. The prototype must be CPU-only, testable without Claude Code, and packaged so Claude Code can invoke it as a skill plus executable.
+Build a Claude Code plugin prototype that accepts a required text prompt plus optional reference image and optional initial image, then generates a capped PNG in the current project directory. The prototype must be CPU-first, testable without Claude Code, and packaged so Claude Code can invoke it as a skill plus executable.
 
 ## Key Assumptions
 
 - "Cloud Code" is treated as Claude Code.
-- The prototype should run on a Mac Pro-class CPU without requiring a local GPU.
+- The default renderer should run on CPU without requiring a local GPU.
+- Optional strong-model similarity scoring can use local PyTorch/Transformers CLIP on CPU or CUDA when dependencies and weights are available.
 - The first working version should not download large model weights or require external API keys.
 - The generator should expose a real iteration loop and prompt/reference similarity score, but it does not need to match the quality of pretrained diffusion systems.
-- Directly asking an LLM to emit every RGB triplet for 720x480 would require hundreds of thousands of values and likely millions of tokens, so the prototype renders compact image primitives and can optionally export the final RGB pixel table.
+- Directly asking an LLM to emit every RGB triplet for large images would require millions of values and likely far more tokens, so the prototype renders compact image primitives and can optionally export the final RGB pixel table.
 
 ## Research-Informed Approach
 
@@ -20,9 +21,9 @@ This prototype uses the same high-level optimization pattern but replaces heavyw
 
 1. Prefer a Claude-authored scene plan JSON containing palette, background, object placement, depth, and style hints. Fall back to parsing the prompt into a target feature vector when no scene plan is provided.
 2. Build a compact scene candidate: background gradient, horizon, geometric strokes, and semantic primitives such as sun, moon, mountains, water, trees, buildings, clouds, and abstract shapes.
-3. Render the candidate to a 720x480 RGB image with Pillow/NumPy.
-4. Score the image using cheap CPU features: color histogram, brightness, edge density, region color placement, scene-object proxies, and optional reference-image palette similarity.
-5. Mutate the compact candidate and keep the best candidate until the score reaches a target threshold or max iterations.
+3. Render the candidate to an RGB image with Pillow/NumPy, capped at 2048x2048 while preserving aspect ratio.
+4. Score the image using local cosine features by default: color histogram, brightness, edge density, region color placement, scene-object proxies, and optional reference-image palette/feature similarity.
+5. Mutate or locally refine the compact candidate and keep the best candidate until the score reaches a target threshold or max iterations.
 6. Write `image.png`, `metadata.json`, `progress.csv`, and optional `pixels.csv`.
 
 ## Plugin Shape
@@ -41,8 +42,8 @@ The repository root is a Claude Code plugin:
 - `palette.py`: map common color words to RGB and extract a reference palette.
 - `scene.py`: define compact scene candidates and mutation logic.
 - `scene_plan.py`: parse Claude-authored JSON scene plans.
-- `render.py`: render a candidate or scene plan to RGB PIL images with a hard max resolution of 720x480.
-- `score.py`: compute cosine-like scores for prompt and reference alignment.
+- `render.py`: render a candidate or scene plan to RGB PIL images with a hard max resolution of 2048x2048.
+- `score.py`: compute local cosine scores for prompt/reference alignment and optionally use Transformers CLIP for stronger model-backed similarity.
 - `generator.py`: run the iterative optimization loop and write outputs.
 - `pixels.py`: export `x,y,r,g,b` CSV for users who need explicit pixel values.
 - `cli.py`: provide `claude-imagegen generate`.
@@ -51,7 +52,7 @@ The repository root is a Claude Code plugin:
 
 - Missing prompt returns a CLI usage error.
 - Unsupported or missing reference/initial image paths fail with a clear message.
-- Requested dimensions larger than 720x480 are capped and recorded in metadata.
+- Requested dimensions larger than 2048x2048 are capped proportionally and recorded in metadata.
 - A low final score is not fatal; metadata reports `met_threshold=false` so Claude Code can decide whether to rerun with more iterations or a different seed.
 
 ## Testing Strategy
@@ -63,7 +64,7 @@ The repository root is a Claude Code plugin:
 
 ## Out of Scope for This Prototype
 
-- GPU diffusion, Stable Diffusion, local CLIP weights, or API-backed image generation.
+- GPU diffusion, Stable Diffusion, or API-backed image generation.
 - Photorealism parity with commercial models.
 - Marketplace publishing.
 - Automatic Claude Code installation into the user profile.

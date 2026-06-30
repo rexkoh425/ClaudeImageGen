@@ -1,11 +1,11 @@
 ---
 name: generate-image
-description: Generate a local PNG from a text prompt, optionally using a reference or initial image, through the CPU-only claude-imagegen executable.
+description: Generate a local PNG from a text prompt, optionally using a reference or initial image, through the CPU-first claude-imagegen executable.
 ---
 
 # Generate Image
 
-Use this skill when the user asks Claude Code to generate an image from a prompt in the current folder, especially when they mention CPU-only generation, reference images, initial generated images, or RGB pixel export.
+Use this skill when the user asks Claude Code to generate an image from a prompt in the current folder, especially when they mention local generation, iterative refinement, reference images, initial generated images, cosine similarity, optional CLIP scoring, or RGB pixel export.
 
 ## Workflow
 
@@ -94,11 +94,23 @@ claude-imagegen generate \
   --width 720 \
   --height 480 \
   --max-iterations 32 \
-  --threshold 0.58
+  --threshold 0.58 \
+  --similarity-backend local
 ```
 
 5. If the user provides a reference image, inspect it and encode the important palette/composition observations in `scene-plan.json`, then also add `--reference-image "/absolute/path/to/reference.png"`. After a run, use `metadata.json` field `reference_palette` as concrete extracted colors to fold back into palette entries, gradients, materials, lights, or veils.
-6. If the user provides an already-generated image to continue from, add `--initial-image "/absolute/path/to/image.png"`. After a run, use `metadata.json` field `initial_palette` to preserve or intentionally shift the starting image colors in the next `scene-plan.json`.
+6. If the user provides an already-generated image file to continue from, add `--initial-image "/absolute/path/to/image.png"`. If the user provides a previous claude-imagegen output folder, prefer:
+
+```bash
+claude-imagegen refine \
+  --from-dir "claude-imagegen-output/<previous-slug>" \
+  --prompt "<revised user prompt>" \
+  --output-dir "claude-imagegen-output/<new-slug>" \
+  --max-iterations 8 \
+  --threshold 0.62
+```
+
+After a refine run, use `metadata.json` fields `initial_similarity_score`, `refined_from`, `parent_image`, and `refinement_lineage_depth` to report continuity with the previous image. Use `initial_palette` to preserve or intentionally shift the starting image colors in the next `scene-plan.json`.
 7. Use `"background"` `"stops"` when Claude needs a richer sky, horizon glow, or color banding. Stops use normalized `"at"` positions and `"color"` values. Supported `"direction"` values are `vertical`, `horizontal`, `diagonal`, and `reverse-diagonal`. Keep `top` and `bottom` for compatibility, but prefer explicit stops for polished scenes.
 8. Use `"elements"` for detail work Claude can compute directly: reflection lines, rim lights, silhouettes, windows, constellations, graphic shapes, and foreground accents. Supported element types include `polyline`, `path`, `polygon`, `ellipse`, `rectangle`, `glow`, and `arc`. `path` supports `M`, `L`, `Q`, `C`, and `Z` commands with normalized coordinates. Filled rectangles, ellipses, polygons, and closed paths can include `"gradient"` with `"type": "linear"` or `"radial"`, at least two `"colors"`, and a linear `"direction"` of `vertical`, `horizontal`, `diagonal`, or `reverse-diagonal`. Any element can include `"blur"` for soft edges and `"blend"` of `normal`, `screen`, `multiply`, `overlay`, or `soft-light`; prefer `overlay` for stronger material color and `soft-light` for subtle tonal shaping.
 9. Use `"motifs"` for repeated details where Claude should specify intent compactly: stars, sparkles, grass blades, rain streaks, dots, and window lights. Supported motif types include `starfield`, `grass`, `rain`, `window_lights`, and generic dots.
@@ -115,13 +127,15 @@ claude-imagegen generate \
 20. Use `"shadows"` for cast shadows, contact shadows, and grounding. Supported shadow types are `ellipse`, `rectangle`, and `polygon`. Ellipse and rectangle shadows use normalized `x`, `y`, `width`, and `height`; polygon shadows use normalized `points`. All shadows support `color`, `opacity`, `blur`, `blend`, and `z`. Prefer soft `multiply` shadows to make objects feel grounded without adding local semantic inference.
 21. Use `"focus"` for depth-of-field or selective softness after the scene is composed. Supported fields are normalized `region`, `blur`, `falloff`, and `mode` of `outside` or `inside`. Prefer `mode: "outside"` to keep the main subject sharp while softly blurring background or edge clutter.
 22. Use `"style"` for final Claude-authored image finishing. Supported fields are `grain`, `vignette`, `saturation`, `contrast`, `warmth`, `bloom`, and `antialias`, each from `0.0` to `1.0`. Use `antialias` when Claude-authored polygons, terrain, silhouettes, or hard geometric edges need a smoother final raster without increasing the saved output size. Use the other fields sparingly for cinematic color, soft highlights, and final polish after composition is already clear.
-23. Add `--pixel-csv` only when the user explicitly wants every final `x,y,r,g,b` value; the file is large at 720x480.
-24. Read `metadata.json`. If `met_threshold` is false, inspect `revision_hints` first and revise `scene-plan.json` using those concrete missing-object, color, contrast, mood, or reference-alignment hints before rerunning. When present, also use `reference_palette` and `initial_palette` to anchor the next palette, gradients, materials, lights, or veils to user-provided imagery. Prefer semantic scene-plan changes over simply increasing local iterations.
-25. Report the generated `image.png`, `metadata.json`, and score.
+23. Use default `--similarity-backend local` for fast deterministic scoring. If the user explicitly asks for stronger local model scoring and local `torch`/`transformers` weights are available, use `--similarity-backend transformers-clip --similarity-model openai/clip-vit-base-patch32 --similarity-device auto`. This can use CUDA for scoring when PyTorch reports it is available.
+24. Leave local auto-refinement enabled by default. Add `--no-auto-refine` only when the user wants to compare an unchanged scene plan against the scorer.
+25. Add `--pixel-csv` only when the user explicitly wants every final `x,y,r,g,b` value; the file is very large at 2048x2048.
+26. Read `metadata.json`. If `met_threshold` is false after auto-refinement, inspect `revision_hints` first and revise `scene-plan.json` using those concrete missing-object, color, contrast, mood, or reference-alignment hints before rerunning. When present, also use `reference_palette` and `initial_palette` to anchor the next palette, gradients, materials, lights, or veils to user-provided imagery. Prefer semantic scene-plan changes over simply increasing local iterations.
+27. Report the generated `image.png`, `metadata.json`, score, `score_details.cosine_score`, `similarity_backend`, any `refinement_actions`, and for refine runs the `initial_similarity_score`.
 
 ## Constraints
 
-- This is a CPU-only prototype. Do not install GPU diffusion packages for this skill.
-- Resolution is capped at 720x480 even if larger values are requested.
-- The scorer is a lightweight prompt/reference proxy, not CLIP or a pretrained diffusion model.
+- This is a CPU-first renderer. Do not install GPU diffusion packages for this skill.
+- Resolution is capped at 2048x2048 while preserving aspect ratio.
+- The default scorer is a lightweight local prompt/reference proxy with explicit cosine similarity. Optional `transformers-clip` is only for stronger prompt-image scoring when dependencies and weights are already available or the user accepts downloading them.
 - The best quality path is Claude-authored `scene-plan.json`; avoid relying on keyword-only generation unless the user asks for a quick rough draft.

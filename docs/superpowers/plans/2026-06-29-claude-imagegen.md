@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a CPU-only Claude Code plugin prototype that generates a 720x480 capped PNG from a prompt plus optional reference/initial image.
+**Goal:** Build a CPU-first Claude Code plugin prototype that generates an aspect-preserving 2048x2048 capped PNG from a prompt plus optional reference/initial image.
 
 **Architecture:** Package the repo as a Claude Code plugin and a small Python package. Claude Code invokes a skill, the skill runs `claude-imagegen`, and the Python generator iteratively mutates compact scene candidates until a surrogate text/reference similarity score reaches a threshold or iteration limit.
 

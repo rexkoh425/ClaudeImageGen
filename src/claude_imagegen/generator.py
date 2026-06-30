@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 
 from PIL import Image
 
-from .palette import RGB, extract_reference_palette
+from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
 from .prompt import parse_prompt
 from .render import cap_dimensions, render_candidate, render_scene_plan
 from .scene import SceneCandidate, build_initial_candidate, mutate_candidate
-from .scene_plan import ScenePlan, parse_scene_plan
-from .score import ScoreResult, score_image
+from .scene_plan import PlannedCloud, PlannedObject, ScenePlan, parse_scene_plan
+from .score import ScoreResult, image_similarity_score, score_image
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,10 @@ class GenerateOptions:
     seed: int = 0
     pixel_csv: bool = False
     scene_plan: Path | None = None
+    auto_refine: bool = True
+    similarity_backend: str = "local"
+    similarity_model: str | None = None
+    similarity_device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,9 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
     best_image: Image.Image | None = None
     best_score: ScoreResult | None = None
     best_iteration = 0
+    best_scene_plan: ScenePlan | None = scene_plan
+    refinement_actions: list[str] = []
+    refinement_rounds = 0
     progress: list[dict[str, object]] = []
 
     for iteration in range(1, options.max_iterations + 1):
@@ -75,7 +82,14 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
             else render_candidate(candidate, width=width, height=height)
         )
         image = _blend_initial_image(image, options.initial_image)
-        score = score_image(image, spec, reference_image=options.reference_image)
+        score = score_image(
+            image,
+            spec,
+            reference_image=options.reference_image,
+            similarity_backend=options.similarity_backend,
+            similarity_model=options.similarity_model,
+            similarity_device=options.similarity_device,
+        )
         met_threshold = score.total_score >= options.threshold
 
         progress.append(
@@ -84,6 +98,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
                 "total_score": f"{score.total_score:.6f}",
                 "text_score": f"{score.text_score:.6f}",
                 "reference_score": f"{score.reference_score:.6f}",
+                "cosine_score": f"{score.details.get('cosine_score', 0.0):.6f}",
                 "met_threshold": str(met_threshold).lower(),
             }
         )
@@ -92,11 +107,18 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
             best_image = image
             best_score = score
             best_iteration = iteration
+            best_scene_plan = scene_plan
 
         if met_threshold:
             break
 
-        if not scene_plan:
+        if scene_plan and options.auto_refine and iteration < options.max_iterations:
+            refined_scene_plan, actions = _refine_scene_plan(scene_plan, spec=spec, score=score)
+            if actions:
+                refinement_rounds += 1
+                refinement_actions.extend(f"iteration {iteration}: {action}" for action in actions)
+                scene_plan = refined_scene_plan
+        elif not scene_plan:
             candidate = mutate_candidate(candidate, iteration)
 
     assert best_image is not None
@@ -109,6 +131,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
 
     best_image.save(image_path)
     _write_progress(progress_path, progress)
+    metadata_scene_plan = best_scene_plan or scene_plan
 
     metadata: dict[str, object] = {
         "prompt": options.prompt,
@@ -122,12 +145,27 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "total_score": round(best_score.total_score, 6),
         "text_score": round(best_score.text_score, 6),
         "reference_score": round(best_score.reference_score, 6),
+        "initial_similarity_score": (
+            round(image_similarity_score(best_image, options.initial_image), 6)
+            if options.initial_image
+            else None
+        ),
         "score_details": {key: round(value, 6) for key, value in best_score.details.items()},
+        "auto_refine": options.auto_refine,
+        "refinement_rounds": refinement_rounds,
+        "refinement_actions": refinement_actions,
+        "similarity_backend": options.similarity_backend,
+        "similarity_model": options.similarity_model,
+        "similarity_device": options.similarity_device,
+        "effective_similarity_device": _effective_similarity_device(
+            backend=options.similarity_backend,
+            requested_device=options.similarity_device,
+        ),
         "revision_hints": _revision_hints(
             spec=spec,
             score=best_score,
             threshold=options.threshold,
-            scene_plan=scene_plan,
+            scene_plan=metadata_scene_plan,
             reference_image=options.reference_image,
         ),
         "seed": options.seed,
@@ -139,29 +177,29 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "reference_palette": _palette_to_hex(reference_palette),
         "initial_palette": _palette_to_hex(initial_palette),
         "scene_plan": str(options.scene_plan) if options.scene_plan else None,
-        "scene_plan_used": scene_plan is not None,
-        "scene_plan_title": scene_plan.title if scene_plan else None,
-        "scene_plan_objects": [obj.kind for obj in scene_plan.objects] if scene_plan else [],
-        "scene_plan_background_stop_count": len(scene_plan.background.stops) if scene_plan else 0,
-        "scene_plan_element_count": len(scene_plan.elements) if scene_plan else 0,
-        "scene_plan_gradient_count": sum(1 for element in scene_plan.elements if element.gradient) if scene_plan else 0,
-        "scene_plan_motif_count": len(scene_plan.motifs) if scene_plan else 0,
-        "scene_plan_texture_count": len(scene_plan.textures) if scene_plan else 0,
-        "scene_plan_material_count": len(scene_plan.materials) if scene_plan else 0,
-        "scene_plan_terrain_count": len(scene_plan.terrains) if scene_plan else 0,
-        "scene_plan_reflection_count": len(scene_plan.reflections) if scene_plan else 0,
-        "scene_plan_warp_count": len(scene_plan.warps) if scene_plan else 0,
-        "scene_plan_atmosphere_used": scene_plan.atmosphere is not None if scene_plan else False,
-        "scene_plan_veil_count": len(scene_plan.veils) if scene_plan else 0,
-        "scene_plan_light_count": len(scene_plan.lights) if scene_plan else 0,
-        "scene_plan_beam_count": len(scene_plan.beams) if scene_plan else 0,
-        "scene_plan_cloud_count": len(scene_plan.clouds) if scene_plan else 0,
-        "scene_plan_shadow_count": len(scene_plan.shadows) if scene_plan else 0,
-        "scene_plan_focus_used": scene_plan.focus is not None if scene_plan else False,
-        "scene_plan_focus_blur": scene_plan.focus.blur if scene_plan and scene_plan.focus else 0.0,
-        "scene_plan_antialias": scene_plan.style.get("antialias", 0.0) if scene_plan else 0.0,
+        "scene_plan_used": metadata_scene_plan is not None,
+        "scene_plan_title": metadata_scene_plan.title if metadata_scene_plan else None,
+        "scene_plan_objects": [obj.kind for obj in metadata_scene_plan.objects] if metadata_scene_plan else [],
+        "scene_plan_background_stop_count": len(metadata_scene_plan.background.stops) if metadata_scene_plan else 0,
+        "scene_plan_element_count": len(metadata_scene_plan.elements) if metadata_scene_plan else 0,
+        "scene_plan_gradient_count": sum(1 for element in metadata_scene_plan.elements if element.gradient) if metadata_scene_plan else 0,
+        "scene_plan_motif_count": len(metadata_scene_plan.motifs) if metadata_scene_plan else 0,
+        "scene_plan_texture_count": len(metadata_scene_plan.textures) if metadata_scene_plan else 0,
+        "scene_plan_material_count": len(metadata_scene_plan.materials) if metadata_scene_plan else 0,
+        "scene_plan_terrain_count": len(metadata_scene_plan.terrains) if metadata_scene_plan else 0,
+        "scene_plan_reflection_count": len(metadata_scene_plan.reflections) if metadata_scene_plan else 0,
+        "scene_plan_warp_count": len(metadata_scene_plan.warps) if metadata_scene_plan else 0,
+        "scene_plan_atmosphere_used": metadata_scene_plan.atmosphere is not None if metadata_scene_plan else False,
+        "scene_plan_veil_count": len(metadata_scene_plan.veils) if metadata_scene_plan else 0,
+        "scene_plan_light_count": len(metadata_scene_plan.lights) if metadata_scene_plan else 0,
+        "scene_plan_beam_count": len(metadata_scene_plan.beams) if metadata_scene_plan else 0,
+        "scene_plan_cloud_count": len(metadata_scene_plan.clouds) if metadata_scene_plan else 0,
+        "scene_plan_shadow_count": len(metadata_scene_plan.shadows) if metadata_scene_plan else 0,
+        "scene_plan_focus_used": metadata_scene_plan.focus is not None if metadata_scene_plan else False,
+        "scene_plan_focus_blur": metadata_scene_plan.focus.blur if metadata_scene_plan and metadata_scene_plan.focus else 0.0,
+        "scene_plan_antialias": metadata_scene_plan.style.get("antialias", 0.0) if metadata_scene_plan else 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "engine": "claude-planned-cpu-renderer-v1" if scene_plan else "cpu-surrogate-iterative-v0",
+        "engine": "claude-planned-cpu-renderer-v1" if metadata_scene_plan else "cpu-surrogate-iterative-v0",
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
@@ -198,6 +236,137 @@ def _blend_initial_image(image: Image.Image, initial_image: Path | None) -> Imag
     with Image.open(initial_image) as existing:
         base = existing.convert("RGB").resize(image.size)
     return Image.blend(base, image, 0.56)
+
+
+def _refine_scene_plan(
+    scene_plan: ScenePlan,
+    *,
+    spec: object,
+    score: ScoreResult,
+) -> tuple[ScenePlan, list[str]]:
+    actions: list[str] = []
+    plan_objects = {obj.kind for obj in scene_plan.objects}
+    requested_objects = tuple(getattr(spec, "objects", ()))
+
+    objects = list(scene_plan.objects)
+    clouds = list(scene_plan.clouds)
+    for missing_object in requested_objects:
+        if missing_object in plan_objects:
+            continue
+        planned_object = _default_planned_object(missing_object, index=len(objects), scene_plan=scene_plan)
+        objects.append(planned_object)
+        plan_objects.add(missing_object)
+        actions.append(f"added missing object '{missing_object}'")
+        if missing_object == "cloud" and not clouds:
+            clouds.append(_default_cloud_layer(scene_plan))
+            actions.append("added cloud layer for prompt cloud evidence")
+
+    style = dict(scene_plan.style)
+    if score.details.get("contrast_score", 1.0) < 0.35:
+        style["contrast"] = min(1.0, style.get("contrast", 0.0) + 0.18)
+        style["vignette"] = min(1.0, style.get("vignette", 0.0) + 0.08)
+        actions.append("increased contrast and vignette")
+
+    if tuple(getattr(spec, "color_words", ())) and score.details.get("color_score", 1.0) < 0.55:
+        style["saturation"] = min(1.0, style.get("saturation", 0.0) + 0.16)
+        actions.append("increased saturation for requested colors")
+
+    if not actions:
+        return scene_plan, []
+
+    return (
+        replace(
+            scene_plan,
+            objects=tuple(objects),
+            clouds=tuple(clouds),
+            style=style,
+        ),
+        actions,
+    )
+
+
+def _default_planned_object(kind: str, *, index: int, scene_plan: ScenePlan) -> PlannedObject:
+    color = _object_color(kind, scene_plan)
+    defaults: dict[str, tuple[float, float, float]] = {
+        "sun": (0.28, 0.25, 0.16),
+        "moon": (0.72, 0.22, 0.12),
+        "cloud": (0.62, 0.25, 0.12),
+        "mountain": (0.50, 0.55, 0.28),
+        "ocean": (0.50, 0.58, 0.18),
+        "forest": (0.50, 0.78, 0.22),
+        "flower": (0.50, 0.78, 0.18),
+        "building": (0.50, 0.64, 0.25),
+        "portrait": (0.50, 0.48, 0.24),
+        "robot": (0.50, 0.50, 0.22),
+        "abstract": (0.50, 0.50, 0.24),
+    }
+    x, y, size = defaults.get(kind, (0.50, 0.50, 0.18))
+    if kind in {"ocean", "mountain", "forest", "flower", "building"}:
+        extra = {"layers": 3} if kind == "mountain" else {}
+    else:
+        extra = {}
+    return PlannedObject(
+        kind=kind,
+        label=f"auto-refined {kind}",
+        x=x,
+        y=y,
+        size=size,
+        color=color,
+        opacity=0.92,
+        extra={**extra, "auto_refined": True, "source_index": index},
+    )
+
+
+def _default_cloud_layer(scene_plan: ScenePlan) -> PlannedCloud:
+    return PlannedCloud(
+        kind="cumulus",
+        label="auto-refined soft cloud bank",
+        region=(0.08, 0.08, 0.94, 0.36),
+        color=_object_color("cloud", scene_plan),
+        shadow=(120, 136, 160),
+        opacity=0.42,
+        blur=0.026,
+        count=4,
+        lobes=5,
+        scale=0.12,
+        blend="screen",
+        seed=97,
+        z=6,
+        extra={"auto_refined": True},
+    )
+
+
+def _object_color(kind: str, scene_plan: ScenePlan) -> RGB:
+    palette = scene_plan.palette
+    if kind == "sun":
+        return COLOR_RGB["red"]
+    if kind == "moon":
+        return (232, 230, 210)
+    if kind in {"ocean", "water", "lake"}:
+        return COLOR_RGB["blue"]
+    if kind in {"forest", "flower"}:
+        return COLOR_RGB["green"]
+    if kind == "cloud":
+        return (245, 248, 250)
+    if kind == "mountain":
+        return (74, 86, 112)
+    if kind == "building":
+        return (44, 50, 64)
+    return palette[min(len(palette) - 1, 0)]
+
+
+def _effective_similarity_device(*, backend: str, requested_device: str) -> str:
+    normalized_backend = backend.strip().lower()
+    normalized_device = requested_device.strip().lower()
+    if normalized_backend == "local":
+        return "cpu"
+    if normalized_device != "auto":
+        return normalized_device
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def _revision_hints(
@@ -251,7 +420,7 @@ def _write_progress(path: Path, rows: list[dict[str, object]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["iteration", "total_score", "text_score", "reference_score", "met_threshold"],
+            fieldnames=["iteration", "total_score", "text_score", "reference_score", "cosine_score", "met_threshold"],
         )
         writer.writeheader()
         writer.writerows(rows)

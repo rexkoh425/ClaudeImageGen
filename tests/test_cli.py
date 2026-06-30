@@ -124,3 +124,88 @@ def test_cli_generate_accepts_scene_plan_file(tmp_path: Path):
     metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["scene_plan_used"] is True
     assert metadata["scene_plan_title"] == "CLI planned scene"
+
+
+def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    base_dir = tmp_path / "base"
+    base_plan = base_dir / "scene-plan.json"
+    base_dir.mkdir()
+    base_plan.write_text(
+        json.dumps(
+            {
+                "title": "Base refinable scene",
+                "palette": ["#102040", "#ff5533", "#286fc4"],
+                "background": {"top": "#102040", "bottom": "#205080"},
+                "objects": [
+                    {"type": "sun", "x": 0.25, "y": 0.25, "size": 0.18, "color": "#ff5533"},
+                    {"type": "ocean", "y": 0.58, "color": "#286fc4"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "generate",
+            "--prompt",
+            "red sun over blue ocean",
+            "--scene-plan",
+            str(base_plan),
+            "--output-dir",
+            str(base_dir),
+            "--width",
+            "120",
+            "--height",
+            "80",
+            "--max-iterations",
+            "2",
+            "--threshold",
+            "0.1",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    refined_dir = tmp_path / "refined"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "refine",
+            "--from-dir",
+            str(base_dir),
+            "--prompt",
+            "red sun over blue ocean with clouds",
+            "--output-dir",
+            str(refined_dir),
+            "--max-iterations",
+            "2",
+            "--threshold",
+            "0.1",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    assert "Refined" in completed.stdout
+    metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["refined_from"] == str(base_dir)
+    assert metadata["parent_image"] == str(base_dir / "image.png")
+    assert metadata["parent_metadata"] == str(base_dir / "metadata.json")
+    assert metadata["initial_image"] == str(base_dir / "image.png")
+    assert metadata["initial_similarity_score"] is not None
+    assert metadata["refinement_lineage_depth"] == 1
+    assert metadata["scene_plan_refine_actions"]

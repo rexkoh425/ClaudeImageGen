@@ -28,14 +28,26 @@ from .scene_plan import (
     ScenePlan,
 )
 
-MAX_WIDTH = 720
-MAX_HEIGHT = 480
+MAX_WIDTH = 2048
+MAX_HEIGHT = 2048
+MAX_PIXELS = MAX_WIDTH * MAX_HEIGHT
 
 
 def cap_dimensions(width: int, height: int) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
-    return min(width, MAX_WIDTH), min(height, MAX_HEIGHT)
+
+    scale = min(1.0, MAX_WIDTH / width, MAX_HEIGHT / height)
+    capped_width = max(1, int(width * scale))
+    capped_height = max(1, int(height * scale))
+
+    pixels = capped_width * capped_height
+    if pixels > MAX_PIXELS:
+        pixel_scale = math.sqrt(MAX_PIXELS / pixels)
+        capped_width = max(1, int(capped_width * pixel_scale))
+        capped_height = max(1, int(capped_height * pixel_scale))
+
+    return capped_width, capped_height
 
 
 def render_candidate(candidate: SceneCandidate, width: int = MAX_WIDTH, height: int = MAX_HEIGHT) -> Image.Image:

@@ -1,10 +1,13 @@
 # Research Notes
 
-This prototype is grounded in text-guided image generation research, but intentionally chooses a CPU-only first version that can run inside a Claude Code workflow without GPU model weights.
+This prototype is grounded in text-guided image generation research, but intentionally chooses a CPU-first renderer that can run inside a Claude Code workflow without GPU model weights by default. Optional model-backed scoring can use local PyTorch/Transformers CLIP on CPU or CUDA when available.
 
 ## Relevant Papers and Systems
 
 - [CLIP: Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020): provides the core idea of scoring image/text alignment in a shared embedding space. A future higher-quality version should replace this prototype's handcrafted scorer with a small CLIP-like embedding model if CPU cost is acceptable.
+- [SigLIP: Sigmoid Loss for Language Image Pre-Training](https://arxiv.org/abs/2303.15343): replaces CLIP's batch softmax contrastive objective with independent sigmoid pair scoring, which is relevant when scoring one prompt/image pair at a time inside an iterative local loop.
+- [BLIP: Bootstrapping Language-Image Pre-training for Unified Vision-Language Understanding and Generation](https://arxiv.org/abs/2201.12086): shows the value of combining captioning/filtering with image-text alignment. For this project, a BLIP-style future step would be to caption the generated image and compare that caption back to the prompt before revising the scene plan.
+- [ImageReward: Learning and Evaluating Human Preferences for Text-to-Image Generation](https://arxiv.org/abs/2304.05977): relevant because prompt-image similarity alone is not enough; later refinement should include preference or aesthetic reward signals when choosing among candidate images.
 - [Zero-Shot Text-to-Image Generation](https://arxiv.org/abs/2102.12092): DALL-E showed text-to-image generation through learned discrete image tokens, not direct natural-language RGB enumeration.
 - [CLIPDraw: Exploring Text-to-Drawing Synthesis through Language-Image Encoders](https://arxiv.org/abs/2106.14843): directly relevant to this prototype because it optimizes compact drawing primitives against a language-image score.
 - [GLIDE: Towards Photorealistic Image Generation and Editing with Text-Guided Diffusion Models](https://arxiv.org/abs/2112.10741): shows text-guided diffusion for generation and editing, including guidance from text prompts.
@@ -42,15 +45,33 @@ This plugin prototype uses pattern 2. It supports two compact representations:
 - `focus`: Claude-authored depth-of-field instructions, where the model specifies a normalized focal region, blur amount, falloff, and whether to blur inside or outside the region. The renderer applies deterministic masked blur after scene composition without deciding what the subject is locally.
 - `style`: Claude-authored final grading controls for grain, vignette, saturation, contrast, warmth, bloom, and antialiasing. These keep final art direction explicit while the renderer performs only deterministic CPU post-processing; antialiasing uses a bounded higher-resolution intermediate raster and downsamples to the capped output size to smooth Claude-authored hard geometry.
 
-The `ScenePlan` path is the preferred quality path because it makes Claude Code do the expensive semantic reasoning, detail placement, and lighting design, then leaves local CPU work to deterministic rendering, deterministic motif expansion, light compositing, scoring, and optional RGB export. The loop remains visible and testable, so Claude Code can inspect `metadata.json`, use extracted `reference_palette` and `initial_palette` colors from user-provided images, and follow `revision_hints` to revise missing objects, weak colors, low contrast, unclear mood, or poor reference alignment before rerunning.
+The `ScenePlan` path is the preferred quality path because it makes Claude Code do the expensive semantic reasoning, detail placement, and lighting design, then leaves local work to deterministic rendering, deterministic motif expansion, light compositing, scoring, targeted auto-refinement, and optional RGB export. The loop remains visible and testable, so Claude Code can inspect `metadata.json`, use extracted `reference_palette` and `initial_palette` colors from user-provided images, and follow `revision_hints` to revise missing objects, weak colors, low contrast, unclear mood, or poor reference alignment before rerunning.
+
+## Similarity Strategy
+
+The current default scorer uses an explicit shared feature-vector cosine between prompt-derived text features and image-derived visual features. The text vector includes requested colors, objects, style words, and mood words. The image vector includes color presence, region/object proxies, brightness, edge density, contrast, warmth, and cloud/sky/water/foliage evidence. This is not CLIP quality, but it gives Claude Code a stable local optimization signal and makes every score auditable in `metadata.json`.
+
+The optional `transformers-clip` scorer loads a CLIP model through Hugging Face Transformers and computes prompt-image embedding cosine directly. It can run on CPU or CUDA via `--similarity-device auto`. This is the first "strong model" extension point; it is intentionally optional so normal plugin tests remain offline and weight-free.
+
+Good future similarity/refinement signals should be layered rather than singular:
+
+1. CLIP/SigLIP-style prompt-image embedding cosine for broad semantic alignment.
+2. Reference-image embedding cosine plus palette/layout comparisons for image-to-image refinement.
+3. Caption-backchecking with a BLIP-style image captioner so Claude can compare what the generated image appears to contain against the requested prompt.
+4. Preference/aesthetic reward such as ImageReward for choosing among multiple aligned candidates.
+5. Hard local checks for resolution, aspect ratio, nonblankness, contrast, and requested object/color evidence.
+
+For iterative editing, prompt alignment is not enough. Each refinement run should also measure continuity against the previous image. The current `refine` command records `initial_similarity_score` between the new output and the parent `image.png`, plus lineage metadata (`refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`). This gives Claude Code two independent signals: whether the image still resembles the previous iteration, and whether it moved closer to the revised text/reference target.
 
 ## Why Not Raw Pixel Generation
 
-At 720x480 there are 345,600 pixels. Even a compact textual RGB representation such as `x,y,r,g,b` is far too large for iterative LLM generation. It is also hard for an LLM to maintain global composition while emitting independent pixels. Programmatic rendering keeps global composition in a small candidate object and emits pixels only at the final step.
+At 2048x2048 there are 4,194,304 pixels. Even a compact textual RGB representation such as `x,y,r,g,b` is far too large for iterative LLM generation. It is also hard for an LLM to maintain global composition while emitting independent pixels. Programmatic rendering keeps global composition in a small candidate object and emits pixels only at the final step.
 
 ## Future Upgrade Path
 
-- Add optional CPU CLIP embeddings through ONNX or a small vision-language model.
+- Add SigLIP and ONNX-backed CLIP/SigLIP options for faster local scoring.
+- Add caption-backchecking with a BLIP-like model so Claude can revise based on what the image appears to contain.
+- Add preference scoring, such as ImageReward-style candidate ranking, to choose better images when semantic cosine scores tie.
 - Add a learned patch prior or tiny autoencoder if quality becomes more important than zero-weight portability.
 - Expand the scene-plan schema with explicit camera, negative-space controls, and scene-level composition guides.
 - Add richer path styling such as dashed strokes, variable stroke width, and path-level gradients.
