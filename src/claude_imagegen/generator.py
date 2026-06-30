@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from .candidates import annotate_candidate_selection, select_recommended_candidate
 from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnostics
 from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
@@ -181,6 +182,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         if caption_result.backend == "none"
         else caption_prompt_diagnostics(options.prompt, caption_result.caption)
     )
+    recommended_candidate = select_recommended_candidate(candidate_entries) if candidate_entries else None
 
     metadata: dict[str, object] = {
         "prompt": options.prompt,
@@ -225,6 +227,10 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "candidate_index": str(candidates_path) if candidates_path else None,
         "candidate_contact_sheet": str(candidate_contact_sheet) if candidate_contact_sheet else None,
         "candidate_images": [entry["image"] for entry in candidate_entries],
+        "recommended_candidate_rank": recommended_candidate.get("rank") if recommended_candidate else None,
+        "recommended_candidate_image": recommended_candidate.get("image") if recommended_candidate else None,
+        "recommended_candidate_score": recommended_candidate.get("selection_score") if recommended_candidate else None,
+        "recommended_candidate_reasons": recommended_candidate.get("selection_reasons") if recommended_candidate else [],
         "revision_hints": _revision_hints(
             spec=spec,
             score=best_score,
@@ -539,24 +545,23 @@ def _write_candidate_artifacts(
             if caption_result.backend == "none"
             else caption_prompt_diagnostics(prompt, caption_result.caption)
         )
-        entries.append(
-            {
-                "rank": rank,
-                "iteration": candidate.iteration,
-                "image": str(image_path),
-                "total_score": round(candidate.score.total_score, 6),
-                "text_score": round(candidate.score.text_score, 6),
-                "reference_score": round(candidate.score.reference_score, 6),
-                "score_details": {key: round(value, 6) for key, value in candidate.score.details.items()},
-                "met_threshold": candidate.met_threshold,
-                "caption": caption_result.caption,
-                "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
-                "caption_missing_objects": list(caption_diagnostics.missing_objects),
-                "caption_missing_colors": list(caption_diagnostics.missing_colors),
-                "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
-                "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
-            }
-        )
+        entry: dict[str, object] = {
+            "rank": rank,
+            "iteration": candidate.iteration,
+            "image": str(image_path),
+            "total_score": round(candidate.score.total_score, 6),
+            "text_score": round(candidate.score.text_score, 6),
+            "reference_score": round(candidate.score.reference_score, 6),
+            "score_details": {key: round(value, 6) for key, value in candidate.score.details.items()},
+            "met_threshold": candidate.met_threshold,
+            "caption": caption_result.caption,
+            "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
+            "caption_missing_objects": list(caption_diagnostics.missing_objects),
+            "caption_missing_colors": list(caption_diagnostics.missing_colors),
+            "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
+            "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
+        }
+        entries.append(annotate_candidate_selection(entry))
 
     contact_sheet_path = _write_candidate_contact_sheet(candidates_dir, sorted_candidates, entries)
     candidates_path = output_dir / "candidates.json"
@@ -600,11 +605,7 @@ def _write_candidate_contact_sheet(
         y = padding + row * (tile_height + padding)
         sheet.paste(thumbnail, (x, y))
         label_y = y + thumbnail.height + 5
-        label = _truncate_text_to_width(
-            draw,
-            f"#{entry['rank']} iter {entry['iteration']} score {entry['total_score']:.3f}",
-            tile_width,
-        )
+        label = _truncate_text_to_width(draw, _candidate_contact_sheet_label(entry), tile_width)
         caption = _truncate_text_to_width(draw, str(entry.get("caption", "")), tile_width)
         draw.text((x, label_y), label, fill=(25, 28, 32))
         if caption:
@@ -613,6 +614,12 @@ def _write_candidate_contact_sheet(
     contact_sheet_path = candidates_dir / "contact-sheet.png"
     sheet.save(contact_sheet_path)
     return contact_sheet_path
+
+
+def _candidate_contact_sheet_label(entry: dict[str, object]) -> str:
+    total_score = float(entry.get("total_score", 0.0))
+    selection_score = float(entry.get("selection_score", 0.0))
+    return f"#{entry['rank']} iter {entry['iteration']} score {total_score:.3f} sel {selection_score:.3f}"
 
 
 def _truncate_text_to_width(draw: ImageDraw.ImageDraw, text: str, max_width: int) -> str:

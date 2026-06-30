@@ -307,3 +307,84 @@ def test_cli_refine_can_start_from_saved_candidate_rank(tmp_path: Path):
     assert metadata["parent_candidate_caption"] == selected["caption"]
     assert metadata["parent_image"] == str(selected_image)
     assert metadata["initial_image"] == str(selected_image)
+
+
+def test_cli_refine_can_auto_select_saved_candidate_rank(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    base_dir = tmp_path / "base-auto-candidates"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "generate",
+            "--prompt",
+            "red robot portrait over blue ocean with clouds",
+            "--output-dir",
+            str(base_dir),
+            "--width",
+            "120",
+            "--height",
+            "80",
+            "--max-iterations",
+            "4",
+            "--threshold",
+            "0.99",
+            "--save-candidates",
+            "2",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    candidates_path = base_dir / "candidates.json"
+    candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+    candidates[0]["selection_score"] = 0.10
+    candidates[0]["selection_reasons"] = ["forced lower score for test"]
+    candidates[1]["selection_score"] = 0.98
+    candidates[1]["selection_reasons"] = ["forced higher score for test"]
+    candidates_path.write_text(json.dumps(candidates, indent=2), encoding="utf-8")
+    selected = candidates[1]
+    selected_image = Path(selected["image"])
+
+    refined_dir = tmp_path / "refined-auto-candidate"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "refine",
+            "--from-dir",
+            str(base_dir),
+            "--candidate-rank",
+            "auto",
+            "--prompt",
+            "red robot portrait over blue ocean with brighter clouds",
+            "--output-dir",
+            str(refined_dir),
+            "--max-iterations",
+            "1",
+            "--threshold",
+            "0.1",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    assert "Candidate rank 2" in completed.stdout
+    assert "Candidate selection auto" in completed.stdout
+    metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["parent_candidate_selection"] == "auto"
+    assert metadata["parent_candidate_rank"] == 2
+    assert metadata["parent_candidate_image"] == str(selected_image)
+    assert metadata["parent_candidate_selection_score"] == 0.98
+    assert metadata["parent_candidate_selection_reasons"] == ["forced higher score for test"]
+    assert metadata["parent_image"] == str(selected_image)
+    assert metadata["initial_image"] == str(selected_image)

@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     refine.add_argument("--scene-plan", type=Path, help="Optional scene plan override; defaults to the parent output scene-plan.json when present.")
     refine.add_argument("--width", type=int, help="Output width; defaults to parent metadata width.")
     refine.add_argument("--height", type=int, help="Output height; defaults to parent metadata height.")
-    refine.add_argument("--candidate-rank", type=int, help="Use a ranked candidate from the parent output candidates.json as the initial image.")
+    refine.add_argument("--candidate-rank", help="Use a ranked candidate number, or 'auto', from the parent output candidates.json as the initial image.")
     refine.add_argument("--max-iterations", type=int, default=32)
     refine.add_argument("--threshold", type=float, default=0.58)
     refine.add_argument("--seed", type=int, default=0)
@@ -199,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Caption {result.metadata['image_caption']}")
         if result.metadata.get("parent_candidate_rank"):
             print(f"Candidate rank {result.metadata['parent_candidate_rank']}")
+        if result.metadata.get("parent_candidate_selection"):
+            print(f"Candidate selection {result.metadata['parent_candidate_selection']}")
         if result.candidates_path:
             print(f"Candidates {result.candidates_path}")
             print(f"Contact sheet {result.metadata['candidate_contact_sheet']}")

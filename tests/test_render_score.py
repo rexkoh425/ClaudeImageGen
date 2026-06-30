@@ -234,11 +234,16 @@ def test_generate_can_save_ranked_candidate_artifacts(tmp_path: Path):
     candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
     assert [candidate["rank"] for candidate in candidates] == [1, 2]
     assert candidates[0]["total_score"] >= candidates[1]["total_score"]
+    assert result.metadata["recommended_candidate_rank"] in {1, 2}
+    assert result.metadata["recommended_candidate_image"] in result.metadata["candidate_images"]
+    assert 0.0 <= result.metadata["recommended_candidate_score"] <= 1.0
     for candidate in candidates:
         assert "caption" in candidate
         assert "caption_similarity_score" in candidate
         assert "caption_missing_objects" in candidate
         assert "caption_missing_colors" in candidate
+        assert 0.0 <= candidate["selection_score"] <= 1.0
+        assert candidate["selection_reasons"]
         image_path = Path(candidate["image"])
         assert image_path.exists()
         with Image.open(image_path) as image:

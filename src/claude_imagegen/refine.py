@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from .candidates import annotate_candidate_selection, select_recommended_candidate
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .prompt import parse_prompt
 
@@ -17,7 +18,7 @@ class RefineOptions:
     scene_plan: Path | None = None
     width: int | None = None
     height: int | None = None
-    candidate_rank: int | None = None
+    candidate_rank: int | str | None = None
     max_iterations: int = 32
     threshold: float = 0.58
     seed: int = 0
@@ -35,7 +36,7 @@ class RefineOptions:
 def refine_image(options: RefineOptions) -> GenerateResult:
     parent_metadata_path = options.from_dir / "metadata.json"
     parent_metadata = _read_parent_metadata(parent_metadata_path)
-    parent_image, parent_candidate = _select_parent_image(options.from_dir, options.candidate_rank)
+    parent_image, parent_candidate, parent_candidate_selection = _select_parent_image(options.from_dir, options.candidate_rank)
     width = options.width or _int_metadata(parent_metadata, "width", 720)
     height = options.height or _int_metadata(parent_metadata, "height", 480)
     scene_plan = options.scene_plan or _discover_scene_plan(options.from_dir, parent_metadata)
@@ -80,12 +81,15 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             "parent_similarity_backend": parent_metadata.get("similarity_backend"),
             "parent_caption": parent_metadata.get("image_caption"),
             "parent_caption_similarity_score": parent_metadata.get("caption_similarity_score"),
+            "parent_candidate_selection": parent_candidate_selection,
             "parent_candidate_rank": parent_candidate.get("rank") if parent_candidate else None,
             "parent_candidate_image": str(parent_image) if parent_candidate else None,
             "parent_candidate_iteration": parent_candidate.get("iteration") if parent_candidate else None,
             "parent_candidate_total_score": parent_candidate.get("total_score") if parent_candidate else None,
             "parent_candidate_caption": parent_candidate.get("caption") if parent_candidate else None,
             "parent_candidate_caption_similarity_score": parent_candidate.get("caption_similarity_score") if parent_candidate else None,
+            "parent_candidate_selection_score": parent_candidate.get("selection_score") if parent_candidate else None,
+            "parent_candidate_selection_reasons": parent_candidate.get("selection_reasons") if parent_candidate else [],
             "refinement_lineage_depth": lineage_depth,
             "scene_plan_refined_from": str(scene_plan_source) if scene_plan_source else None,
             "scene_plan_refine_actions": scene_plan_actions,
@@ -102,16 +106,42 @@ def _read_parent_metadata(path: Path) -> dict[str, object]:
     return data if isinstance(data, dict) else {}
 
 
-def _select_parent_image(parent_dir: Path, candidate_rank: int | None) -> tuple[Path, dict[str, object] | None]:
+def _select_parent_image(parent_dir: Path, candidate_rank: int | str | None) -> tuple[Path, dict[str, object] | None, str | None]:
     if candidate_rank is None:
         parent_image = parent_dir / "image.png"
         if not parent_image.exists():
             raise FileNotFoundError(f"Parent image not found: {parent_image}")
-        return parent_image, None
+        return parent_image, None, None
 
-    if candidate_rank <= 0:
+    rank_request = _normalize_candidate_rank(candidate_rank)
+    candidates = _read_candidate_index(parent_dir)
+
+    if rank_request == "auto":
+        selected = select_recommended_candidate(candidates)
+        image_path = _resolve_candidate_image(parent_dir, selected.get("image"))
+        return image_path, selected, "auto"
+
+    if rank_request <= 0:
         raise ValueError("candidate_rank must be positive")
 
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        try:
+            rank = int(item.get("rank", 0))
+        except (TypeError, ValueError):
+            continue
+        if rank == rank_request:
+            selected = dict(item)
+            if "selection_score" not in selected:
+                annotate_candidate_selection(selected)
+            image_path = _resolve_candidate_image(parent_dir, selected.get("image"))
+            return image_path, selected, "rank"
+
+    raise ValueError(f"Candidate rank {rank_request} not found in {parent_dir / 'candidates.json'}")
+
+
+def _read_candidate_index(parent_dir: Path) -> list[object]:
     candidates_path = parent_dir / "candidates.json"
     if not candidates_path.exists():
         raise FileNotFoundError(f"Candidate index not found: {candidates_path}")
@@ -119,19 +149,19 @@ def _select_parent_image(parent_dir: Path, candidate_rank: int | None) -> tuple[
     data = json.loads(candidates_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, list):
         raise ValueError(f"Candidate index must contain a list: {candidates_path}")
+    return data
 
-    for item in data:
-        if not isinstance(item, dict):
-            continue
+
+def _normalize_candidate_rank(candidate_rank: int | str) -> int | str:
+    if isinstance(candidate_rank, str):
+        normalized = candidate_rank.strip().lower()
+        if normalized == "auto":
+            return "auto"
         try:
-            rank = int(item.get("rank", 0))
-        except (TypeError, ValueError):
-            continue
-        if rank == candidate_rank:
-            image_path = _resolve_candidate_image(parent_dir, item.get("image"))
-            return image_path, item
-
-    raise ValueError(f"Candidate rank {candidate_rank} not found in {candidates_path}")
+            return int(normalized)
+        except ValueError as exc:
+            raise ValueError("candidate_rank must be a positive integer or 'auto'") from exc
+    return candidate_rank
 
 
 def _resolve_candidate_image(parent_dir: Path, raw_image: object) -> Path:
