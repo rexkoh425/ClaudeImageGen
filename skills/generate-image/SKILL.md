@@ -5,7 +5,7 @@ description: Generate a local PNG from a text prompt, optionally using a referen
 
 # Generate Image
 
-Use this skill when the user asks Claude Code to generate an image from a prompt in the current folder, especially when they mention local generation, iterative refinement, reference images, initial generated images, cosine similarity, optional CLIP scoring, or RGB pixel export.
+Use this skill when the user asks Claude Code to generate an image from a prompt in the current folder, especially when they mention local generation, iterative refinement, reference images, initial generated images, cosine similarity, caption backchecking, optional CLIP/BLIP scoring, or RGB pixel export.
 
 ## Workflow
 
@@ -128,14 +128,15 @@ After a refine run, use `metadata.json` fields `initial_similarity_score`, `refi
 21. Use `"focus"` for depth-of-field or selective softness after the scene is composed. Supported fields are normalized `region`, `blur`, `falloff`, and `mode` of `outside` or `inside`. Prefer `mode: "outside"` to keep the main subject sharp while softly blurring background or edge clutter.
 22. Use `"style"` for final Claude-authored image finishing. Supported fields are `grain`, `vignette`, `saturation`, `contrast`, `warmth`, `bloom`, and `antialias`, each from `0.0` to `1.0`. Use `antialias` when Claude-authored polygons, terrain, silhouettes, or hard geometric edges need a smoother final raster without increasing the saved output size. Use the other fields sparingly for cinematic color, soft highlights, and final polish after composition is already clear.
 23. Use default `--similarity-backend local` for fast deterministic scoring. If the user explicitly asks for stronger local model scoring and local `torch`/`transformers` weights are available, use `--similarity-backend transformers-clip --similarity-model openai/clip-vit-base-patch32 --similarity-device auto`. This can use CUDA for scoring when PyTorch reports it is available.
-24. Leave local auto-refinement enabled by default. Add `--no-auto-refine` only when the user wants to compare an unchanged scene plan against the scorer.
-25. Add `--pixel-csv` only when the user explicitly wants every final `x,y,r,g,b` value; the file is very large at 2048x2048.
-26. Read `metadata.json`. If `met_threshold` is false after auto-refinement, inspect `revision_hints` first and revise `scene-plan.json` using those concrete missing-object, color, contrast, mood, or reference-alignment hints before rerunning. When present, also use `reference_palette` and `initial_palette` to anchor the next palette, gradients, materials, lights, or veils to user-provided imagery. Prefer semantic scene-plan changes over simply increasing local iterations.
-27. Report the generated `image.png`, `metadata.json`, score, `score_details.cosine_score`, `similarity_backend`, any `refinement_actions`, and for refine runs the `initial_similarity_score`.
+24. Leave default `--caption-backend local` enabled so `metadata.json` records `image_caption` and `caption_similarity_score`. If the user explicitly asks for stronger image-to-text checking and local `torch`/`transformers` weights are available, use `--caption-backend transformers-blip --caption-model Salesforce/blip-image-captioning-base --caption-device auto`. This can use CUDA for captioning when PyTorch reports it is available.
+25. Leave local auto-refinement enabled by default. Add `--no-auto-refine` only when the user wants to compare an unchanged scene plan against the scorer.
+26. Add `--pixel-csv` only when the user explicitly wants every final `x,y,r,g,b` value; the file is very large at 2048x2048.
+27. Read `metadata.json`. If `met_threshold` is false after auto-refinement, inspect `revision_hints` first and revise `scene-plan.json` using those concrete missing-object, color, contrast, mood, or reference-alignment hints before rerunning. If `caption_similarity_score` is low or `image_caption` omits important requested objects, revise the next `scene-plan.json` to make those objects visually explicit. When present, also use `reference_palette` and `initial_palette` to anchor the next palette, gradients, materials, lights, or veils to user-provided imagery. Prefer semantic scene-plan changes over simply increasing local iterations.
+28. Report the generated `image.png`, `metadata.json`, score, `score_details.cosine_score`, `similarity_backend`, `image_caption`, `caption_similarity_score`, any `refinement_actions`, and for refine runs the `initial_similarity_score`.
 
 ## Constraints
 
 - This is a CPU-first renderer. Do not install GPU diffusion packages for this skill.
 - Resolution is capped at 2048x2048 while preserving aspect ratio.
-- The default scorer is a lightweight local prompt/reference proxy with explicit cosine similarity. Optional `transformers-clip` is only for stronger prompt-image scoring when dependencies and weights are already available or the user accepts downloading them.
+- The default scorer and captioner are lightweight local prompt/reference proxies with explicit cosine and caption backchecking. Optional `transformers-clip` and `transformers-blip` are only for stronger model-backed checks when dependencies and weights are already available or the user accepts downloading them.
 - The best quality path is Claude-authored `scene-plan.json`; avoid relying on keyword-only generation unless the user asks for a quick rough draft.

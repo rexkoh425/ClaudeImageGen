@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from .caption import caption_image
 from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
 from .prompt import parse_prompt
@@ -34,6 +35,9 @@ class GenerateOptions:
     similarity_backend: str = "local"
     similarity_model: str | None = None
     similarity_device: str = "auto"
+    caption_backend: str = "local"
+    caption_model: str | None = None
+    caption_device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,13 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
     best_image.save(image_path)
     _write_progress(progress_path, progress)
     metadata_scene_plan = best_scene_plan or scene_plan
+    caption_result = caption_image(
+        best_image,
+        prompt=options.prompt,
+        backend=options.caption_backend,
+        model_name=options.caption_model,
+        device=options.caption_device,
+    )
 
     metadata: dict[str, object] = {
         "prompt": options.prompt,
@@ -161,6 +172,13 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
             backend=options.similarity_backend,
             requested_device=options.similarity_device,
         ),
+        "caption_backend": caption_result.backend,
+        "caption_model": caption_result.model_name,
+        "caption_device": caption_result.requested_device,
+        "effective_caption_device": caption_result.effective_device,
+        "image_caption": caption_result.caption,
+        "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
+        "caption_tokens": list(caption_result.tokens),
         "revision_hints": _revision_hints(
             spec=spec,
             score=best_score,

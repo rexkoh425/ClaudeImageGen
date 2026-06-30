@@ -25,6 +25,9 @@ class RefineOptions:
     similarity_backend: str = "local"
     similarity_model: str | None = None
     similarity_device: str = "auto"
+    caption_backend: str = "local"
+    caption_model: str | None = None
+    caption_device: str = "auto"
 
 
 def refine_image(options: RefineOptions) -> GenerateResult:
@@ -60,6 +63,9 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             similarity_backend=options.similarity_backend,
             similarity_model=options.similarity_model,
             similarity_device=options.similarity_device,
+            caption_backend=options.caption_backend,
+            caption_model=options.caption_model,
+            caption_device=options.caption_device,
         )
     )
 
@@ -72,6 +78,8 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             "parent_prompt": parent_metadata.get("prompt"),
             "parent_total_score": parent_metadata.get("total_score"),
             "parent_similarity_backend": parent_metadata.get("similarity_backend"),
+            "parent_caption": parent_metadata.get("image_caption"),
+            "parent_caption_similarity_score": parent_metadata.get("caption_similarity_score"),
             "refinement_lineage_depth": lineage_depth,
             "scene_plan_refined_from": str(scene_plan_source) if scene_plan_source else None,
             "scene_plan_refine_actions": scene_plan_actions,

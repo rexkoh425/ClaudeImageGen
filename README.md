@@ -1,13 +1,14 @@
 # Claude ImageGen
 
-CPU-first Claude Code plugin prototype for generating a local PNG from a text prompt and optional reference or initial image.
+CPU-first Claude Code plugin prototype for generating a local PNG from a text prompt and optional reference or initial image. Optional model-backed CLIP and BLIP checks can use local CPU or CUDA when PyTorch reports that CUDA is available.
 
 The default path does not download diffusion weights or require a GPU. It follows the same broad loop used by text-guided image optimization systems:
 
 1. Parse the prompt into compact visual targets.
 2. Render a candidate image from geometric and semantic primitives.
 3. Score the result against text and optional reference-image features.
-4. Mutate or locally refine the candidate and repeat until the score reaches a threshold or the iteration budget is exhausted.
+4. Caption-backcheck what the image appears to contain against the prompt.
+5. Mutate or locally refine the candidate and repeat until the score reaches a threshold or the iteration budget is exhausted.
 
 The maximum output size is capped at 2048x2048 while preserving aspect ratio.
 
@@ -113,7 +114,7 @@ claude-imagegen generate \
 Outputs:
 
 - `image.png`: generated RGB image.
-- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
+- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
 - `progress.csv`: score per iteration.
 - `pixels.csv`: optional explicit `x,y,r,g,b` table when `--pixel-csv` is passed.
 
@@ -142,7 +143,7 @@ claude-imagegen refine \
   --threshold 0.62
 ```
 
-The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, and `initial_similarity_score`. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score` and `reference_score` track prompt/reference alignment.
+The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `parent_caption`, and `parent_caption_similarity_score`. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
 
 ## Similarity Backends
 
@@ -163,6 +164,26 @@ claude-imagegen generate \
 ```
 
 `--similarity-device auto` uses CUDA through PyTorch when available, otherwise CPU. This optional backend scores prompt-image cosine similarity; it does not turn the renderer into a diffusion model.
+
+## Caption Backchecking
+
+Every run defaults to `--caption-backend local`, a deterministic offline caption proxy that describes visible scene evidence such as sun, ocean, clouds, mountains, forest, or city structure. The generated `metadata.json` records `image_caption`, `caption_similarity_score`, `caption_backend`, `caption_model`, `caption_device`, and `effective_caption_device`.
+
+For stronger image-to-text checking, use the optional Transformers BLIP backend when `torch`, `transformers`, and the selected model are available:
+
+```bash
+claude-imagegen generate \
+  --prompt "cinematic red sun over a blue ocean with misty mountains" \
+  --scene-plan claude-imagegen-output/demo/scene-plan.json \
+  --output-dir claude-imagegen-output/demo-blip \
+  --width 1024 \
+  --height 768 \
+  --caption-backend transformers-blip \
+  --caption-model Salesforce/blip-image-captioning-base \
+  --caption-device auto
+```
+
+`--caption-device auto` uses CUDA through PyTorch when available, otherwise CPU. Caption backchecking is a second signal: it helps Claude Code spot when the image appears to contain different objects than the prompt asked for, even if the local cosine score is high.
 
 ## Claude Code Plugin Layout
 
@@ -241,7 +262,7 @@ Scene plans have two composition levels:
 
 A 2048x2048 image has 4,194,304 pixels. A literal RGB table has 4,194,304 rows before metadata, and asking an LLM to emit that table directly would usually mean millions of tokens. This prototype therefore renders pixels programmatically and only exports `pixels.csv` on request.
 
-When `met_threshold` is false, `metadata.json` includes `revision_hints` with concrete scene-plan changes for Claude Code to make next, such as adding missing objects, strengthening requested colors, increasing contrast, or moving closer to a reference image. If a scene plan is provided, the generator also performs bounded local auto-refinement between iterations: it can add missing prompt objects such as clouds, add a matching cloud layer, and increase contrast or saturation when the local scorer shows weak evidence. If a reference or initial image is provided, `reference_palette` and `initial_palette` expose extracted hex colors that Claude can fold into the next scene plan. The intent is to keep the expensive semantic iteration in Claude Code while local work remains deterministic rendering, scoring, and targeted refinement.
+When `met_threshold` is false, `metadata.json` includes `revision_hints` with concrete scene-plan changes for Claude Code to make next, such as adding missing objects, strengthening requested colors, increasing contrast, or moving closer to a reference image. If a scene plan is provided, the generator also performs bounded local auto-refinement between iterations: it can add missing prompt objects such as clouds, add a matching cloud layer, and increase contrast or saturation when the local scorer shows weak evidence. If a reference or initial image is provided, `reference_palette` and `initial_palette` expose extracted hex colors that Claude can fold into the next scene plan. `image_caption` and `caption_similarity_score` add a direct "what does this look like" check before revising the next scene plan. The intent is to keep the expensive semantic iteration in Claude Code while local work remains deterministic rendering, scoring, caption backchecking, and targeted refinement.
 
 ## Validation
 
@@ -259,9 +280,9 @@ claude plugin validate .claude-plugin/marketplace.json --strict
 
 ## Current Limits
 
-- The default scorer is a lightweight local cosine surrogate; optional `transformers-clip` can use CLIP when local dependencies and weights are available.
+- The default scorer and captioner are lightweight local surrogates; optional `transformers-clip` and `transformers-blip` can use stronger local models when dependencies and weights are available.
 - Image quality is closer to procedural concept art than diffusion output.
 - Keyword-only prompt understanding is dictionary-based; planned generation shifts composition and prompt interpretation to Claude Code through `scene-plan.json`.
-- No GPU diffusion, external image API, or large model weights are used by default. GPU is only used by the optional model-backed similarity scorer.
+- No GPU diffusion, external image API, or large model weights are used by default. GPU is only used by optional model-backed similarity and caption backchecking.
 
 See `docs/research.md` for the research basis and why later versions should expand from scoring toward learned priors, upscaling, edit preservation, and stronger model-guided refinement.

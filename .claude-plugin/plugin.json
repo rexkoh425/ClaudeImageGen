@@ -2,7 +2,7 @@
   "name": "claude-imagegen",
   "displayName": "Claude ImageGen",
   "version": "0.1.0",
-  "description": "Image generation plugin prototype for Claude Code using a CPU-only iterative renderer.",
+  "description": "Image generation plugin prototype for Claude Code using a CPU-first iterative renderer with optional model-backed checks.",
   "author": {
     "name": "ClaudeImageGen"
   },
@@ -10,6 +10,7 @@
   "keywords": [
     "image-generation",
     "scene-plan",
-    "cpu-renderer"
+    "cpu-renderer",
+    "caption-backcheck"
   ]
 }

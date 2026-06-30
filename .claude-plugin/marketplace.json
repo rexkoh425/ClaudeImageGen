@@ -9,19 +9,21 @@
     {
       "name": "claude-imagegen",
       "displayName": "Claude ImageGen",
-      "description": "Generate local CPU-only images from Claude-authored scene plans.",
+      "description": "Generate local CPU-first images from Claude-authored scene plans with optional model-backed checks.",
       "version": "0.1.0",
       "source": "./",
       "category": "creative",
       "keywords": [
         "image-generation",
         "scene-plan",
-        "cpu-renderer"
+        "cpu-renderer",
+        "caption-backcheck"
       ],
       "tags": [
         "image-generation",
         "creative",
-        "cpu"
+        "cpu",
+        "caption"
       ],
       "license": "MIT",
       "strict": true,

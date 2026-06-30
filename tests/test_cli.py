@@ -34,6 +34,10 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
             "0.1",
             "--seed",
             "11",
+            "--caption-backend",
+            "local",
+            "--caption-device",
+            "cpu",
             "--pixel-csv",
         ],
         text=True,
@@ -52,6 +56,7 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert progress_path.exists()
     assert pixels_path.exists()
     assert "image.png" in completed.stdout
+    assert "Caption" in completed.stdout
 
     with Image.open(image_path) as image:
         assert image.mode == "RGB"
@@ -62,6 +67,11 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert metadata["width"] == 80
     assert metadata["height"] == 48
     assert metadata["iterations"] >= 1
+    assert metadata["caption_backend"] == "local"
+    assert metadata["effective_caption_device"] == "cpu"
+    assert "sun" in metadata["image_caption"]
+    assert "ocean" in metadata["image_caption"]
+    assert metadata["caption_similarity_score"] > 0.15
 
     with progress_path.open(newline="", encoding="utf-8") as handle:
         progress_rows = list(csv.DictReader(handle))

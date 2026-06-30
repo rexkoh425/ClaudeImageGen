@@ -148,3 +148,27 @@ def test_generate_metadata_records_similarity_backend(tmp_path: Path):
     assert result.metadata["effective_similarity_device"] == "cpu"
     assert result.metadata["similarity_model"] is None
     assert "cosine_score" in result.metadata["score_details"]
+
+
+def test_generate_metadata_records_caption_backcheck(tmp_path: Path):
+    result = generate_image(
+        GenerateOptions(
+            prompt="red sun over blue ocean",
+            output_dir=tmp_path / "out",
+            width=80,
+            height=50,
+            max_iterations=2,
+            threshold=0.1,
+            caption_backend="local",
+            caption_device="cpu",
+        )
+    )
+
+    assert result.metadata["caption_backend"] == "local"
+    assert result.metadata["caption_model"] is None
+    assert result.metadata["caption_device"] == "cpu"
+    assert result.metadata["effective_caption_device"] == "cpu"
+    assert "sun" in result.metadata["image_caption"]
+    assert "ocean" in result.metadata["image_caption"]
+    assert 0.0 <= result.metadata["caption_similarity_score"] <= 1.0
+    assert result.metadata["caption_similarity_score"] > 0.15

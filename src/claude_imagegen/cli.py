@@ -41,6 +41,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Device for optional model-backed similarity scoring.",
     )
     generate.add_argument(
+        "--caption-backend",
+        choices=("none", "local", "transformers-blip"),
+        default="local",
+        help="Caption backcheck backend for what the image appears to contain.",
+    )
+    generate.add_argument(
+        "--caption-model",
+        help="Optional model id/path for --caption-backend transformers-blip.",
+    )
+    generate.add_argument(
+        "--caption-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional model-backed caption backchecking.",
+    )
+    generate.add_argument(
         "--no-auto-refine",
         dest="auto_refine",
         action="store_false",
@@ -77,6 +93,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Device for optional model-backed similarity scoring.",
     )
     refine.add_argument(
+        "--caption-backend",
+        choices=("none", "local", "transformers-blip"),
+        default="local",
+        help="Caption backcheck backend for what the image appears to contain.",
+    )
+    refine.add_argument(
+        "--caption-model",
+        help="Optional model id/path for --caption-backend transformers-blip.",
+    )
+    refine.add_argument(
+        "--caption-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional model-backed caption backchecking.",
+    )
+    refine.add_argument(
         "--no-auto-refine",
         dest="auto_refine",
         action="store_false",
@@ -108,11 +140,15 @@ def main(argv: list[str] | None = None) -> int:
                 similarity_backend=args.similarity_backend,
                 similarity_model=args.similarity_model,
                 similarity_device=args.similarity_device,
+                caption_backend=args.caption_backend,
+                caption_model=args.caption_model,
+                caption_device=args.caption_device,
             )
         )
         print(f"Generated {result.image_path}")
         print(f"Metadata {result.metadata_path}")
         print(f"Score {result.metadata['total_score']}")
+        print(f"Caption {result.metadata['image_caption']}")
         return 0
 
     if args.command == "refine":
@@ -133,11 +169,15 @@ def main(argv: list[str] | None = None) -> int:
                 similarity_backend=args.similarity_backend,
                 similarity_model=args.similarity_model,
                 similarity_device=args.similarity_device,
+                caption_backend=args.caption_backend,
+                caption_model=args.caption_model,
+                caption_device=args.caption_device,
             )
         )
         print(f"Refined {result.image_path}")
         print(f"Metadata {result.metadata_path}")
         print(f"Score {result.metadata['total_score']}")
+        print(f"Caption {result.metadata['image_caption']}")
         print(f"Initial similarity {result.metadata['initial_similarity_score']}")
         return 0
 

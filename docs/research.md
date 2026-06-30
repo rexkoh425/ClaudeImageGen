@@ -6,7 +6,7 @@ This prototype is grounded in text-guided image generation research, but intenti
 
 - [CLIP: Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020): provides the core idea of scoring image/text alignment in a shared embedding space. A future higher-quality version should replace this prototype's handcrafted scorer with a small CLIP-like embedding model if CPU cost is acceptable.
 - [SigLIP: Sigmoid Loss for Language Image Pre-Training](https://arxiv.org/abs/2303.15343): replaces CLIP's batch softmax contrastive objective with independent sigmoid pair scoring, which is relevant when scoring one prompt/image pair at a time inside an iterative local loop.
-- [BLIP: Bootstrapping Language-Image Pre-training for Unified Vision-Language Understanding and Generation](https://arxiv.org/abs/2201.12086): shows the value of combining captioning/filtering with image-text alignment. For this project, a BLIP-style future step would be to caption the generated image and compare that caption back to the prompt before revising the scene plan.
+- [BLIP: Bootstrapping Language-Image Pre-training for Unified Vision-Language Understanding and Generation](https://arxiv.org/abs/2201.12086): shows the value of combining captioning/filtering with image-text alignment. This project now includes caption-backchecking: a default local caption proxy plus an optional Transformers BLIP backend to caption the generated image and compare that caption back to the prompt before revising the scene plan.
 - [ImageReward: Learning and Evaluating Human Preferences for Text-to-Image Generation](https://arxiv.org/abs/2304.05977): relevant because prompt-image similarity alone is not enough; later refinement should include preference or aesthetic reward signals when choosing among candidate images.
 - [Zero-Shot Text-to-Image Generation](https://arxiv.org/abs/2102.12092): DALL-E showed text-to-image generation through learned discrete image tokens, not direct natural-language RGB enumeration.
 - [CLIPDraw: Exploring Text-to-Drawing Synthesis through Language-Image Encoders](https://arxiv.org/abs/2106.14843): directly relevant to this prototype because it optimizes compact drawing primitives against a language-image score.
@@ -53,11 +53,13 @@ The current default scorer uses an explicit shared feature-vector cosine between
 
 The optional `transformers-clip` scorer loads a CLIP model through Hugging Face Transformers and computes prompt-image embedding cosine directly. It can run on CPU or CUDA via `--similarity-device auto`. This is the first "strong model" extension point; it is intentionally optional so normal plugin tests remain offline and weight-free.
 
+The current default caption backcheck uses local visual heuristics to produce `image_caption` and `caption_similarity_score`. It is intentionally simple and auditable: it looks for visible evidence such as warm upper sun regions, blue lower water regions, bright cloud regions, green foliage, edges, contrast, and dark skyline structure. The optional `transformers-blip` backend loads BLIP through Hugging Face Transformers and captions the generated image directly. It can run on CPU or CUDA via `--caption-device auto`, giving Claude Code a stronger "what does this image appear to contain" signal when local model dependencies and weights are available.
+
 Good future similarity/refinement signals should be layered rather than singular:
 
 1. CLIP/SigLIP-style prompt-image embedding cosine for broad semantic alignment.
 2. Reference-image embedding cosine plus palette/layout comparisons for image-to-image refinement.
-3. Caption-backchecking with a BLIP-style image captioner so Claude can compare what the generated image appears to contain against the requested prompt.
+3. Caption-backchecking with local heuristics or a BLIP-style image captioner so Claude can compare what the generated image appears to contain against the requested prompt.
 4. Preference/aesthetic reward such as ImageReward for choosing among multiple aligned candidates.
 5. Hard local checks for resolution, aspect ratio, nonblankness, contrast, and requested object/color evidence.
 
@@ -70,7 +72,7 @@ At 2048x2048 there are 4,194,304 pixels. Even a compact textual RGB representati
 ## Future Upgrade Path
 
 - Add SigLIP and ONNX-backed CLIP/SigLIP options for faster local scoring.
-- Add caption-backchecking with a BLIP-like model so Claude can revise based on what the image appears to contain.
+- Add more caption backends and object-grounding checks so Claude can revise based on localized missing or mistaken objects, not only global caption overlap.
 - Add preference scoring, such as ImageReward-style candidate ranking, to choose better images when semantic cosine scores tie.
 - Add a learned patch prior or tiny autoencoder if quality becomes more important than zero-weight portability.
 - Expand the scene-plan schema with explicit camera, negative-space controls, and scene-level composition guides.

@@ -27,12 +27,12 @@ def test_repo_contains_installable_claude_marketplace_manifest():
         {
             "name": "claude-imagegen",
             "displayName": "Claude ImageGen",
-            "description": "Generate local CPU-only images from Claude-authored scene plans.",
+            "description": "Generate local CPU-first images from Claude-authored scene plans with optional model-backed checks.",
             "version": "0.1.0",
             "source": "./",
             "category": "creative",
-            "keywords": ["image-generation", "scene-plan", "cpu-renderer"],
-            "tags": ["image-generation", "creative", "cpu"],
+            "keywords": ["image-generation", "scene-plan", "cpu-renderer", "caption-backcheck"],
+            "tags": ["image-generation", "creative", "cpu", "caption"],
             "license": "MIT",
             "strict": True,
             "defaultEnabled": True,
@@ -80,6 +80,8 @@ def test_claude_skill_and_executable_are_present():
     assert "revision_hints" in skill_text
     assert "reference_palette" in skill_text
     assert "initial_palette" in skill_text
+    assert "--caption-backend" in skill_text
+    assert "caption_similarity_score" in skill_text
     assert executable.exists()
     executable_text = executable.read_text(encoding="utf-8")
     assert "claude_imagegen.cli" in executable_text
