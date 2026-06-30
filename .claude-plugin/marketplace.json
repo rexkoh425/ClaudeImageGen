@@ -1,0 +1,31 @@
+{
+  "name": "claude-imagegen",
+  "description": "GitHub marketplace for installing the Claude ImageGen plugin on another machine.",
+  "version": "0.1.0",
+  "owner": {
+    "name": "ClaudeImageGen"
+  },
+  "plugins": [
+    {
+      "name": "claude-imagegen",
+      "displayName": "Claude ImageGen",
+      "description": "Generate local CPU-only images from Claude-authored scene plans.",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "creative",
+      "keywords": [
+        "image-generation",
+        "scene-plan",
+        "cpu-renderer"
+      ],
+      "tags": [
+        "image-generation",
+        "creative",
+        "cpu"
+      ],
+      "license": "MIT",
+      "strict": true,
+      "defaultEnabled": true
+    }
+  ]
+}

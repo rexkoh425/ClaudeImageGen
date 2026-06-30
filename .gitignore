@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.claude/
+
+# Local generation outputs. Remove this ignore if you want to version sample images.
+claude-imagegen-output/
