@@ -38,6 +38,7 @@ class GenerateOptions:
     caption_backend: str = "local"
     caption_model: str | None = None
     caption_device: str = "auto"
+    save_candidates: int = 0
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,15 @@ class GenerateResult:
     metadata_path: Path
     progress_path: Path
     pixels_path: Path | None
+    candidates_path: Path | None
+
+
+@dataclass(frozen=True)
+class CandidateSnapshot:
+    iteration: int
+    image: Image.Image
+    score: ScoreResult
+    met_threshold: bool
 
 
 def generate_image(options: GenerateOptions) -> GenerateResult:
@@ -55,6 +65,8 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         raise ValueError("prompt must not be empty")
     if options.max_iterations <= 0:
         raise ValueError("max_iterations must be positive")
+    if options.save_candidates < 0:
+        raise ValueError("save_candidates must not be negative")
 
     width, height = cap_dimensions(options.width, options.height)
     output_dir = options.output_dir
@@ -78,6 +90,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
     refinement_actions: list[str] = []
     refinement_rounds = 0
     progress: list[dict[str, object]] = []
+    top_candidates: list[CandidateSnapshot] = []
 
     for iteration in range(1, options.max_iterations + 1):
         image = (
@@ -113,6 +126,18 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
             best_iteration = iteration
             best_scene_plan = scene_plan
 
+        if options.save_candidates:
+            _remember_candidate(
+                top_candidates,
+                CandidateSnapshot(
+                    iteration=iteration,
+                    image=image.copy(),
+                    score=score,
+                    met_threshold=met_threshold,
+                ),
+                limit=options.save_candidates,
+            )
+
         if met_threshold:
             break
 
@@ -135,6 +160,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
 
     best_image.save(image_path)
     _write_progress(progress_path, progress)
+    candidates_path, candidate_entries = _write_candidate_artifacts(output_dir, top_candidates)
     metadata_scene_plan = best_scene_plan or scene_plan
     caption_result = caption_image(
         best_image,
@@ -188,6 +214,9 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "caption_missing_colors": list(caption_diagnostics.missing_colors),
         "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
         "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
+        "candidate_count": len(candidate_entries),
+        "candidate_index": str(candidates_path) if candidates_path else None,
+        "candidate_images": [entry["image"] for entry in candidate_entries],
         "revision_hints": _revision_hints(
             spec=spec,
             score=best_score,
@@ -242,6 +271,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         metadata_path=metadata_path,
         progress_path=progress_path,
         pixels_path=pixels_path,
+        candidates_path=candidates_path,
     )
 
 
@@ -461,6 +491,45 @@ def _revision_hints(
         hints.append("Move palette and composition closer to the reference image before rerunning.")
 
     return hints[:6]
+
+
+def _remember_candidate(candidates: list[CandidateSnapshot], snapshot: CandidateSnapshot, *, limit: int) -> None:
+    candidates.append(snapshot)
+    candidates.sort(key=lambda candidate: candidate.score.total_score, reverse=True)
+    del candidates[limit:]
+
+
+def _write_candidate_artifacts(
+    output_dir: Path,
+    candidates: list[CandidateSnapshot],
+) -> tuple[Path | None, list[dict[str, object]]]:
+    if not candidates:
+        return None, []
+
+    candidates_dir = output_dir / "candidates"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    sorted_candidates = sorted(candidates, key=lambda candidate: candidate.score.total_score, reverse=True)
+    entries: list[dict[str, object]] = []
+
+    for rank, candidate in enumerate(sorted_candidates, start=1):
+        image_path = candidates_dir / f"candidate-{rank:03d}-iter-{candidate.iteration:03d}.png"
+        candidate.image.save(image_path)
+        entries.append(
+            {
+                "rank": rank,
+                "iteration": candidate.iteration,
+                "image": str(image_path),
+                "total_score": round(candidate.score.total_score, 6),
+                "text_score": round(candidate.score.text_score, 6),
+                "reference_score": round(candidate.score.reference_score, 6),
+                "score_details": {key: round(value, 6) for key, value in candidate.score.details.items()},
+                "met_threshold": candidate.met_threshold,
+            }
+        )
+
+    candidates_path = output_dir / "candidates.json"
+    candidates_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    return candidates_path, entries
 
 
 def _write_progress(path: Path, rows: list[dict[str, object]]) -> None:

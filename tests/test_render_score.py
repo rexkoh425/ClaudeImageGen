@@ -206,3 +206,34 @@ def test_generate_revision_hints_include_caption_missing_evidence(tmp_path: Path
     assert result.metadata["caption_missing_colors"] == ["red"]
     assert result.metadata["caption_unexpected_objects"] == ["flower"]
     assert any("caption missed requested objects" in hint for hint in result.metadata["revision_hints"])
+
+
+def test_generate_can_save_ranked_candidate_artifacts(tmp_path: Path):
+    result = generate_image(
+        GenerateOptions(
+            prompt="red sun over blue ocean with clouds",
+            output_dir=tmp_path / "out",
+            width=96,
+            height=64,
+            max_iterations=4,
+            threshold=0.99,
+            save_candidates=2,
+        )
+    )
+
+    candidates_path = tmp_path / "out" / "candidates.json"
+    candidates_dir = tmp_path / "out" / "candidates"
+    assert candidates_path.exists()
+    assert candidates_dir.exists()
+    assert result.metadata["candidate_count"] == 2
+    assert result.metadata["candidate_index"] == str(candidates_path)
+    assert len(result.metadata["candidate_images"]) == 2
+
+    candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+    assert [candidate["rank"] for candidate in candidates] == [1, 2]
+    assert candidates[0]["total_score"] >= candidates[1]["total_score"]
+    for candidate in candidates:
+        image_path = Path(candidate["image"])
+        assert image_path.exists()
+        with Image.open(image_path) as image:
+            assert image.size == (96, 64)

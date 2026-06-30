@@ -25,6 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--seed", type=int, default=0)
     generate.add_argument("--pixel-csv", action="store_true", help="Also write pixels.csv with x,y,r,g,b rows.")
     generate.add_argument(
+        "--save-candidates",
+        type=int,
+        default=0,
+        help="Save the top N ranked candidate images plus candidates.json for inspection.",
+    )
+    generate.add_argument(
         "--similarity-backend",
         choices=("local", "transformers-clip"),
         default="local",
@@ -76,6 +82,12 @@ def build_parser() -> argparse.ArgumentParser:
     refine.add_argument("--threshold", type=float, default=0.58)
     refine.add_argument("--seed", type=int, default=0)
     refine.add_argument("--pixel-csv", action="store_true", help="Also write pixels.csv with x,y,r,g,b rows.")
+    refine.add_argument(
+        "--save-candidates",
+        type=int,
+        default=0,
+        help="Save the top N ranked candidate images plus candidates.json for inspection.",
+    )
     refine.add_argument(
         "--similarity-backend",
         choices=("local", "transformers-clip"),
@@ -136,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
                 threshold=args.threshold,
                 seed=args.seed,
                 pixel_csv=args.pixel_csv,
+                save_candidates=args.save_candidates,
                 auto_refine=args.auto_refine,
                 similarity_backend=args.similarity_backend,
                 similarity_model=args.similarity_model,
@@ -149,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata {result.metadata_path}")
         print(f"Score {result.metadata['total_score']}")
         print(f"Caption {result.metadata['image_caption']}")
+        if result.candidates_path:
+            print(f"Candidates {result.candidates_path}")
         return 0
 
     if args.command == "refine":
@@ -165,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 threshold=args.threshold,
                 seed=args.seed,
                 pixel_csv=args.pixel_csv,
+                save_candidates=args.save_candidates,
                 auto_refine=args.auto_refine,
                 similarity_backend=args.similarity_backend,
                 similarity_model=args.similarity_model,
@@ -178,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Metadata {result.metadata_path}")
         print(f"Score {result.metadata['total_score']}")
         print(f"Caption {result.metadata['image_caption']}")
+        if result.candidates_path:
+            print(f"Candidates {result.candidates_path}")
         print(f"Initial similarity {result.metadata['initial_similarity_score']}")
         return 0
 

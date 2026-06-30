@@ -21,6 +21,7 @@ class RefineOptions:
     threshold: float = 0.58
     seed: int = 0
     pixel_csv: bool = False
+    save_candidates: int = 0
     auto_refine: bool = True
     similarity_backend: str = "local"
     similarity_model: str | None = None
@@ -59,6 +60,7 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             threshold=options.threshold,
             seed=options.seed,
             pixel_csv=options.pixel_csv,
+            save_candidates=options.save_candidates,
             auto_refine=options.auto_refine,
             similarity_backend=options.similarity_backend,
             similarity_model=options.similarity_model,

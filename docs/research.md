@@ -45,7 +45,7 @@ This plugin prototype uses pattern 2. It supports two compact representations:
 - `focus`: Claude-authored depth-of-field instructions, where the model specifies a normalized focal region, blur amount, falloff, and whether to blur inside or outside the region. The renderer applies deterministic masked blur after scene composition without deciding what the subject is locally.
 - `style`: Claude-authored final grading controls for grain, vignette, saturation, contrast, warmth, bloom, and antialiasing. These keep final art direction explicit while the renderer performs only deterministic CPU post-processing; antialiasing uses a bounded higher-resolution intermediate raster and downsamples to the capped output size to smooth Claude-authored hard geometry.
 
-The `ScenePlan` path is the preferred quality path because it makes Claude Code do the expensive semantic reasoning, detail placement, and lighting design, then leaves local work to deterministic rendering, deterministic motif expansion, light compositing, scoring, targeted auto-refinement, and optional RGB export. The loop remains visible and testable, so Claude Code can inspect `metadata.json`, use extracted `reference_palette` and `initial_palette` colors from user-provided images, and follow `revision_hints` to revise missing objects, weak colors, low contrast, unclear mood, low caption evidence, or poor reference alignment before rerunning.
+The `ScenePlan` path is the preferred quality path because it makes Claude Code do the expensive semantic reasoning, detail placement, and lighting design, then leaves local work to deterministic rendering, deterministic motif expansion, light compositing, scoring, targeted auto-refinement, candidate ranking, and optional RGB export. The loop remains visible and testable, so Claude Code can inspect `metadata.json`, use extracted `reference_palette` and `initial_palette` colors from user-provided images, inspect `candidates.json` and top-ranked candidate PNGs, and follow `revision_hints` to revise missing objects, weak colors, low contrast, unclear mood, low caption evidence, or poor reference alignment before rerunning.
 
 ## Similarity Strategy
 
@@ -62,6 +62,8 @@ Good future similarity/refinement signals should be layered rather than singular
 3. Caption-backchecking with local heuristics or a BLIP-style image captioner so Claude can compare what the generated image appears to contain against the requested prompt.
 4. Preference/aesthetic reward such as ImageReward for choosing among multiple aligned candidates.
 5. Hard local checks for resolution, aspect ratio, nonblankness, contrast, and requested object/color evidence.
+
+The current `--save-candidates N` option supports a simple version of candidate ranking. It saves the top N scored images and a `candidates.json` index so Claude Code can inspect alternatives when scores are close or when the numeric best candidate is not the best visual continuation.
 
 For iterative editing, prompt alignment is not enough. Each refinement run should also measure continuity against the previous image. The current `refine` command records `initial_similarity_score` between the new output and the parent `image.png`, plus lineage metadata (`refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`). This gives Claude Code two independent signals: whether the image still resembles the previous iteration, and whether it moved closer to the revised text/reference target.
 

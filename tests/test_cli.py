@@ -31,13 +31,15 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
             "--max-iterations",
             "6",
             "--threshold",
-            "0.1",
+            "0.99",
             "--seed",
             "11",
             "--caption-backend",
             "local",
             "--caption-device",
             "cpu",
+            "--save-candidates",
+            "2",
             "--pixel-csv",
         ],
         text=True,
@@ -50,11 +52,13 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     metadata_path = output_dir / "metadata.json"
     progress_path = output_dir / "progress.csv"
     pixels_path = output_dir / "pixels.csv"
+    candidates_path = output_dir / "candidates.json"
 
     assert image_path.exists()
     assert metadata_path.exists()
     assert progress_path.exists()
     assert pixels_path.exists()
+    assert candidates_path.exists()
     assert "image.png" in completed.stdout
     assert "Caption" in completed.stdout
 
@@ -72,10 +76,16 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert "sun" in metadata["image_caption"]
     assert "ocean" in metadata["image_caption"]
     assert metadata["caption_similarity_score"] > 0.15
+    assert metadata["candidate_count"] == 2
+    assert metadata["candidate_index"] == str(candidates_path)
 
     with progress_path.open(newline="", encoding="utf-8") as handle:
         progress_rows = list(csv.DictReader(handle))
     assert progress_rows
+
+    candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+    assert len(candidates) == 2
+    assert all((output_dir / candidate["image"]).exists() or Path(candidate["image"]).exists() for candidate in candidates)
 
     with pixels_path.open(newline="", encoding="utf-8") as handle:
         pixel_rows = list(csv.reader(handle))

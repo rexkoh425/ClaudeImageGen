@@ -23,7 +23,8 @@ claude-imagegen generate \
   --output-dir claude-imagegen-output/demo \
   --width 720 \
   --height 480 \
-  --max-iterations 32
+  --max-iterations 32 \
+  --save-candidates 4
 ```
 
 For better quality, write a scene plan first:
@@ -114,8 +115,10 @@ claude-imagegen generate \
 Outputs:
 
 - `image.png`: generated RGB image.
-- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, caption missing/unexpected evidence, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
+- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, caption missing/unexpected evidence, candidate artifact paths, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
 - `progress.csv`: score per iteration.
+- `candidates.json`: optional ranked candidate index when `--save-candidates N` is passed.
+- `candidates/`: optional top-N candidate PNGs for visual comparison.
 - `pixels.csv`: optional explicit `x,y,r,g,b` table when `--pixel-csv` is passed.
 
 ## Reference and Initial Images
@@ -144,6 +147,8 @@ claude-imagegen refine \
 ```
 
 The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `parent_caption`, and `parent_caption_similarity_score`. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
+
+Use `--save-candidates N` on either `generate` or `refine` when Claude Code should inspect alternatives instead of trusting only the best-scored final image. The generator writes `candidates.json` plus `candidates/candidate-*.png`; each entry records rank, iteration, image path, total/text/reference scores, score details, and threshold status. This is useful when several candidates have close scores or when the best score is visually worse than a lower-ranked alternative.
 
 ## Similarity Backends
 
