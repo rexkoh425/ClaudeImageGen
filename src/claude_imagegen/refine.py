@@ -7,6 +7,7 @@ from pathlib import Path
 from .candidates import annotate_candidate_selection, select_recommended_candidate
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .prompt import parse_prompt
+from .quality import apply_quality_report
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,7 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             "scene_plan_refine_actions": scene_plan_actions,
         }
     )
+    apply_quality_report(options.output_dir, result.metadata)
     result.metadata_path.write_text(json.dumps(result.metadata, indent=2), encoding="utf-8")
     return result
 

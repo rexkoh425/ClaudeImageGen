@@ -265,6 +265,37 @@ def test_generate_revision_hints_include_caption_missing_evidence(tmp_path: Path
     assert any("caption missed requested objects" in hint for hint in result.metadata["revision_hints"])
 
 
+def test_generate_writes_quality_report_for_claude_iteration(tmp_path: Path):
+    result = generate_image(
+        GenerateOptions(
+            prompt="red sun over blue ocean with clouds",
+            output_dir=tmp_path / "out",
+            width=96,
+            height=64,
+            max_iterations=2,
+            threshold=0.99,
+            save_candidates=2,
+        )
+    )
+
+    quality_path = tmp_path / "out" / "quality-report.json"
+    assert quality_path.exists()
+    assert result.metadata["quality_report"] == str(quality_path)
+    assert result.metadata["quality_status"] in {"pass", "review", "revise"}
+    assert 0.0 <= result.metadata["quality_score"] <= 1.0
+
+    report = json.loads(quality_path.read_text(encoding="utf-8"))
+    assert report["status"] == result.metadata["quality_status"]
+    assert report["quality_score"] == result.metadata["quality_score"]
+    assert report["summary"]
+    assert {check["name"] for check in report["checks"]} >= {
+        "prompt_alignment",
+        "caption_alignment",
+        "candidate_recommendation",
+    }
+    assert report["next_actions"]
+
+
 def test_generate_can_save_ranked_candidate_artifacts(tmp_path: Path):
     result = generate_image(
         GenerateOptions(

@@ -162,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Generated {result.image_path}")
         print(f"Metadata {result.metadata_path}")
         print(f"Score {result.metadata['total_score']}")
+        print(f"Quality {result.metadata['quality_status']} {result.metadata['quality_score']} ({result.metadata['quality_report']})")
         print(f"Caption {result.metadata['image_caption']}")
         if result.candidates_path:
             print(f"Candidates {result.candidates_path}")
@@ -196,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Refined {result.image_path}")
         print(f"Metadata {result.metadata_path}")
         print(f"Score {result.metadata['total_score']}")
+        print(f"Quality {result.metadata['quality_status']} {result.metadata['quality_score']} ({result.metadata['quality_report']})")
         print(f"Caption {result.metadata['image_caption']}")
         if result.metadata.get("parent_candidate_rank"):
             print(f"Candidate rank {result.metadata['parent_candidate_rank']}")

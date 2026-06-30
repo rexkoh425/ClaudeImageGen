@@ -13,6 +13,7 @@ from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnosti
 from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
 from .prompt import parse_prompt
+from .quality import apply_quality_report
 from .render import cap_dimensions, render_candidate, render_scene_plan
 from .scene import SceneCandidate, build_initial_candidate, mutate_candidate
 from .scene_plan import PlannedCloud, PlannedObject, ScenePlan, parse_scene_plan
@@ -281,6 +282,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "engine": "claude-planned-cpu-renderer-v1" if metadata_scene_plan else "cpu-surrogate-iterative-v0",
     }
+    apply_quality_report(output_dir, metadata)
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     if pixels_path:
