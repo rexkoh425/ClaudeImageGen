@@ -115,7 +115,7 @@ claude-imagegen generate \
 Outputs:
 
 - `image.png`: generated RGB image.
-- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `image_caption`, `caption_similarity_score`, caption missing/unexpected evidence, candidate artifact paths, recommended candidate fields, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
+- `metadata.json`: prompt, score, dimensions, seed, detected objects/colors, extracted `reference_palette` / `initial_palette`, threshold result, `score_details.cosine_score`, `initial_similarity_details` for image-to-image continuity, `image_caption`, `caption_similarity_score`, caption missing/unexpected evidence, candidate artifact paths, recommended candidate fields, local refinement actions, and `revision_hints` when Claude should revise a weak scene plan.
 - `progress.csv`: score per iteration.
 - `candidates.json`: optional ranked candidate index when `--save-candidates N` is passed, including score details, captions, caption missing/unexpected evidence, and `selection_score` / `selection_reasons` for each candidate.
 - `candidates/`: optional top-N candidate PNGs plus `contact-sheet.png` for visual comparison.
@@ -147,7 +147,7 @@ claude-imagegen refine \
   --threshold 0.62
 ```
 
-The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `parent_caption`, `parent_caption_similarity_score`, and `parent_candidate_*` fields when `--candidate-rank` is used. Use `--candidate-rank auto` to start from the saved candidate with the strongest combined total score, caption similarity, reference score, and caption-diagnostic penalties. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
+The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `initial_similarity_details`, `parent_caption`, `parent_caption_similarity_score`, and `parent_candidate_*` fields when `--candidate-rank` is used. Use `--candidate-rank auto` to start from the saved candidate with the strongest combined total score, caption similarity, reference score, and caption-diagnostic penalties. Use `initial_similarity_details.continuity_score`, `image_cosine_score`, `luminance_ssim_score`, `edge_cosine_score`, and `color_histogram_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
 
 Use `--save-candidates N` on either `generate` or `refine` when Claude Code should inspect alternatives instead of trusting only the best-scored final image. The generator writes `candidates.json`, `candidates/candidate-*.png`, and `candidates/contact-sheet.png`; each index entry records rank, iteration, image path, total/text/reference scores, score details, threshold status, candidate caption, caption similarity, candidate-level missing/unexpected prompt evidence, and `selection_score` / `selection_reasons`. The run metadata also records `recommended_candidate_rank`, `recommended_candidate_image`, `recommended_candidate_score`, and `recommended_candidate_reasons`. If a lower-ranked candidate is visually stronger, run `refine --from-dir <parent> --candidate-rank <rank>`; otherwise use `refine --from-dir <parent> --candidate-rank auto` to let the saved selection score choose the next initial image.
 
@@ -170,6 +170,8 @@ claude-imagegen generate \
 ```
 
 `--similarity-device auto` uses CUDA through PyTorch when available, otherwise CPU. This optional backend scores prompt-image cosine similarity; it does not turn the renderer into a diffusion model.
+
+When refining from an initial image with `--similarity-backend transformers-clip`, `initial_similarity_details` also includes `clip_image_cosine_score`, an image-embedding cosine between the new image and the selected parent image. The final `initial_similarity_score` blends local continuity with that CLIP image cosine, giving Claude Code a stronger continuity signal when cached local model weights are available.
 
 ## Caption Backchecking
 

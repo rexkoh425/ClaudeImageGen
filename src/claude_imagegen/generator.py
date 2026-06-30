@@ -16,7 +16,7 @@ from .prompt import parse_prompt
 from .render import cap_dimensions, render_candidate, render_scene_plan
 from .scene import SceneCandidate, build_initial_candidate, mutate_candidate
 from .scene_plan import PlannedCloud, PlannedObject, ScenePlan, parse_scene_plan
-from .score import ScoreResult, image_similarity_score, score_image
+from .score import ScoreResult, image_similarity_details, score_image
 
 
 @dataclass(frozen=True)
@@ -183,6 +183,17 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         else caption_prompt_diagnostics(options.prompt, caption_result.caption)
     )
     recommended_candidate = select_recommended_candidate(candidate_entries) if candidate_entries else None
+    initial_similarity = (
+        image_similarity_details(
+            best_image,
+            options.initial_image,
+            similarity_backend=options.similarity_backend,
+            similarity_model=options.similarity_model,
+            similarity_device=options.similarity_device,
+        )
+        if options.initial_image
+        else None
+    )
 
     metadata: dict[str, object] = {
         "prompt": options.prompt,
@@ -196,11 +207,8 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "total_score": round(best_score.total_score, 6),
         "text_score": round(best_score.text_score, 6),
         "reference_score": round(best_score.reference_score, 6),
-        "initial_similarity_score": (
-            round(image_similarity_score(best_image, options.initial_image), 6)
-            if options.initial_image
-            else None
-        ),
+        "initial_similarity_score": initial_similarity["continuity_score"] if initial_similarity else None,
+        "initial_similarity_details": initial_similarity,
         "score_details": {key: round(value, 6) for key, value in best_score.details.items()},
         "auto_refine": options.auto_refine,
         "refinement_rounds": refinement_rounds,

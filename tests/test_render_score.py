@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw
 
 from claude_imagegen.caption import CaptionResult
 import claude_imagegen.generator as generator_module
+import claude_imagegen.score as score_module
 from claude_imagegen.generator import GenerateOptions, _truncate_text_to_width, generate_image
 from claude_imagegen.prompt import parse_prompt
 from claude_imagegen.render import cap_dimensions, render_candidate
@@ -91,6 +92,62 @@ def test_reference_and_initial_palettes_are_written_to_metadata(tmp_path: Path):
     assert result.metadata["initial_palette"] == ["#c82878"]
     assert result.metadata["initial_similarity_score"] is not None
     assert 0.0 <= result.metadata["initial_similarity_score"] <= 1.0
+    initial_details = result.metadata["initial_similarity_details"]
+    assert initial_details["continuity_score"] == result.metadata["initial_similarity_score"]
+    assert 0.0 <= initial_details["image_cosine_score"] <= 1.0
+    assert 0.0 <= initial_details["luminance_ssim_score"] <= 1.0
+    assert 0.0 <= initial_details["edge_cosine_score"] <= 1.0
+    assert 0.0 <= initial_details["color_histogram_score"] <= 1.0
+
+
+def test_image_similarity_details_reward_identical_images_over_different_image(tmp_path: Path):
+    assert hasattr(score_module, "image_similarity_details")
+
+    reference = Image.new("RGB", (48, 32), (20, 40, 90))
+    draw = ImageDraw.Draw(reference)
+    draw.rectangle((4, 6, 26, 24), fill=(210, 50, 70))
+    draw.ellipse((24, 4, 42, 22), fill=(240, 230, 170))
+    reference_path = tmp_path / "reference.png"
+    reference.save(reference_path)
+    different = Image.new("RGB", (48, 32), (220, 220, 220))
+
+    identical_details = score_module.image_similarity_details(reference, reference_path)
+    different_details = score_module.image_similarity_details(different, reference_path)
+
+    assert identical_details["continuity_score"] > different_details["continuity_score"]
+    assert identical_details["image_cosine_score"] > different_details["image_cosine_score"]
+    assert identical_details["luminance_ssim_score"] > different_details["luminance_ssim_score"]
+    assert identical_details["edge_cosine_score"] > different_details["edge_cosine_score"]
+    assert identical_details["color_histogram_score"] > different_details["color_histogram_score"]
+    assert identical_details["continuity_score"] >= 0.99
+
+
+def test_initial_similarity_details_include_clip_image_cosine_when_clip_backend_is_active(tmp_path: Path, monkeypatch):
+    initial = tmp_path / "initial.png"
+    Image.new("RGB", (32, 32), (200, 40, 120)).save(initial)
+
+    monkeypatch.setattr(score_module, "_clip_text_image_score", lambda *args, **kwargs: 0.61)
+    monkeypatch.setattr(score_module, "_clip_image_image_score", lambda *args, **kwargs: 0.83)
+
+    result = generate_image(
+        GenerateOptions(
+            prompt="abstract poster",
+            output_dir=tmp_path / "out",
+            initial_image=initial,
+            width=80,
+            height=50,
+            max_iterations=1,
+            seed=5,
+            threshold=0.1,
+            similarity_backend="transformers-clip",
+            similarity_device="cuda",
+        )
+    )
+
+    initial_details = result.metadata["initial_similarity_details"]
+    assert initial_details["clip_image_cosine_score"] == 0.83
+    assert initial_details["continuity_score"] == result.metadata["initial_similarity_score"]
+    assert result.metadata["similarity_backend"] == "transformers-clip"
 
 
 def test_scene_plan_generation_auto_refines_missing_prompt_objects(tmp_path: Path):
