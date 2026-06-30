@@ -142,13 +142,14 @@ claude-imagegen refine \
   --from-dir claude-imagegen-output/demo \
   --prompt "cinematic red sun over a blue ocean with misty mountains, clouds, richer foreground grass, and stronger water reflections" \
   --output-dir claude-imagegen-output/demo-refined \
+  --candidate-rank 2 \
   --max-iterations 8 \
   --threshold 0.62
 ```
 
-The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `parent_caption`, and `parent_caption_similarity_score`. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
+The refined `metadata.json` includes `refined_from`, `parent_image`, `parent_metadata`, `refinement_lineage_depth`, `initial_similarity_score`, `parent_caption`, `parent_caption_similarity_score`, and `parent_candidate_*` fields when `--candidate-rank` is used. Use `initial_similarity_score` to confirm continuity with the previous image while `score_details.cosine_score`, `caption_similarity_score`, and `reference_score` track prompt/reference alignment.
 
-Use `--save-candidates N` on either `generate` or `refine` when Claude Code should inspect alternatives instead of trusting only the best-scored final image. The generator writes `candidates.json`, `candidates/candidate-*.png`, and `candidates/contact-sheet.png`; each index entry records rank, iteration, image path, total/text/reference scores, score details, threshold status, candidate caption, caption similarity, and candidate-level missing/unexpected prompt evidence. This is useful when several candidates have close scores or when the best score is visually worse than a lower-ranked alternative.
+Use `--save-candidates N` on either `generate` or `refine` when Claude Code should inspect alternatives instead of trusting only the best-scored final image. The generator writes `candidates.json`, `candidates/candidate-*.png`, and `candidates/contact-sheet.png`; each index entry records rank, iteration, image path, total/text/reference scores, score details, threshold status, candidate caption, caption similarity, and candidate-level missing/unexpected prompt evidence. If a lower-ranked candidate is visually stronger, run `refine --from-dir <parent> --candidate-rank <rank>` to use that candidate PNG as the next initial image.
 
 ## Similarity Backends
 

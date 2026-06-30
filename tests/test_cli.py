@@ -234,3 +234,76 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     assert metadata["initial_similarity_score"] is not None
     assert metadata["refinement_lineage_depth"] == 1
     assert metadata["scene_plan_refine_actions"]
+
+
+def test_cli_refine_can_start_from_saved_candidate_rank(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    base_dir = tmp_path / "base-candidates"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "generate",
+            "--prompt",
+            "red robot portrait over blue ocean with clouds",
+            "--output-dir",
+            str(base_dir),
+            "--width",
+            "120",
+            "--height",
+            "80",
+            "--max-iterations",
+            "4",
+            "--threshold",
+            "0.99",
+            "--save-candidates",
+            "2",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+    candidates = json.loads((base_dir / "candidates.json").read_text(encoding="utf-8"))
+    selected = candidates[1]
+    selected_image = Path(selected["image"])
+
+    refined_dir = tmp_path / "refined-from-candidate"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "refine",
+            "--from-dir",
+            str(base_dir),
+            "--candidate-rank",
+            "2",
+            "--prompt",
+            "red robot portrait over blue ocean with brighter clouds",
+            "--output-dir",
+            str(refined_dir),
+            "--max-iterations",
+            "1",
+            "--threshold",
+            "0.1",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    assert "Candidate rank 2" in completed.stdout
+    metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["parent_candidate_rank"] == 2
+    assert metadata["parent_candidate_image"] == str(selected_image)
+    assert metadata["parent_candidate_iteration"] == selected["iteration"]
+    assert metadata["parent_candidate_total_score"] == selected["total_score"]
+    assert metadata["parent_candidate_caption"] == selected["caption"]
+    assert metadata["parent_image"] == str(selected_image)
+    assert metadata["initial_image"] == str(selected_image)
