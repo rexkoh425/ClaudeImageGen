@@ -124,6 +124,36 @@ def test_cli_accepts_siglip_similarity_backend_options():
     setup_args = parser.parse_args(["setup"])
     assert setup_args.command == "setup"
 
+    setup_diffusion_args = parser.parse_args(["setup", "--with-diffusion"])
+    assert setup_diffusion_args.command == "setup"
+    assert setup_diffusion_args.with_diffusion is True
+
+    diffuse_args = parser.parse_args(
+        [
+            "diffuse",
+            "--prompt",
+            "photoreal glass greenhouse interior at night",
+            "--output-dir",
+            "out",
+            "--width",
+            "1024",
+            "--height",
+            "768",
+            "--seeds",
+            "101,202",
+            "--steps",
+            "4",
+            "--device",
+            "cuda",
+            "--quality-target",
+            "0.9",
+        ]
+    )
+    assert diffuse_args.command == "diffuse"
+    assert diffuse_args.seeds == (101, 202)
+    assert diffuse_args.device == "cuda"
+    assert diffuse_args.quality_target == 0.9
+
 
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):
     output_dir = tmp_path / "generated"
@@ -246,6 +276,111 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
         pixel_rows = list(csv.reader(handle))
     assert pixel_rows[0] == ["x", "y", "r", "g", "b"]
     assert len(pixel_rows) == (80 * 48) + 1
+
+
+def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    class FakePipeline:
+        def __init__(self):
+            self.calls: list[dict[str, object]] = []
+
+        def __call__(self, **kwargs):
+            call_index = len(self.calls)
+            self.calls.append(kwargs)
+            seed = (101, 202)[call_index]
+            width = int(kwargs["width"])
+            height = int(kwargs["height"])
+            image = Image.new("RGB", (width, height), (18 + seed % 100, 70, 96))
+            for x in range(width):
+                shade = min(255, 30 + (x * 180 // max(1, width - 1)))
+                for y in range(0, height, 8):
+                    image.putpixel((x, y), (shade, 180 - (seed % 40), 92))
+            return SimpleNamespace(images=[image])
+
+    fake_pipeline = FakePipeline()
+
+    def fake_load_pipeline(*, model: str, device: str):
+        assert model == "stabilityai/sdxl-turbo"
+        assert device == "cuda"
+        return fake_pipeline, "cuda"
+
+    monkeypatch.setattr(diffusion_module, "_load_pipeline", fake_load_pipeline)
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    output_dir = tmp_path / "diffusion"
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt="photoreal glass greenhouse interior at night",
+            output_dir=output_dir,
+            width=97,
+            height=65,
+            seeds=(101, 202),
+            device="cuda",
+            quality_target=0.9,
+        )
+    )
+
+    assert result.image_path == output_dir / "image.png"
+    assert result.image_path.exists()
+    assert result.metadata_path.exists()
+    assert result.quality_report_path.exists()
+    assert result.critique_request_path.exists()
+    assert result.candidates_path.exists()
+    assert result.contact_sheet_path.exists()
+    assert len(fake_pipeline.calls) == 2
+    assert all(call["prompt"] == "photoreal glass greenhouse interior at night" for call in fake_pipeline.calls)
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["engine"] == "diffusers-text-to-image-v1"
+    assert metadata["backend"] == "diffusers"
+    assert metadata["model"] == "stabilityai/sdxl-turbo"
+    assert metadata["effective_device"] == "cuda"
+    assert metadata["width"] == 96
+    assert metadata["height"] == 64
+    assert metadata["candidate_count"] == 2
+    assert metadata["selected_seed"] in [101, 202]
+    assert metadata["quality_target"] == 0.9
+    assert metadata["target_quality_met"] is False
+    assert metadata["visual_critique_required"] is True
+
+    candidates = json.loads(result.candidates_path.read_text(encoding="utf-8"))
+    assert {candidate["seed"] for candidate in candidates} == {101, 202}
+    assert all(Path(candidate["image"]).exists() for candidate in candidates)
+    assert all(0.0 <= candidate["selection_score"] <= 1.0 for candidate in candidates)
+
+    critique_request = json.loads(result.critique_request_path.read_text(encoding="utf-8"))
+    assert critique_request["image"] == str(result.image_path)
+    assert critique_request["prompt"] == "photoreal glass greenhouse interior at night"
+
+
+def test_diffusion_generation_records_prompt_length_warning(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    class FakePipeline:
+        def __call__(self, **kwargs):
+            return SimpleNamespace(images=[Image.new("RGB", (int(kwargs["width"]), int(kwargs["height"])), (24, 80, 120))])
+
+    monkeypatch.setattr(diffusion_module, "_load_pipeline", lambda *, model, device: (FakePipeline(), "cuda"))
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    long_prompt = " ".join(f"detail{i}" for i in range(90))
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt=long_prompt,
+            output_dir=tmp_path / "diffusion-long-prompt",
+            width=96,
+            height=64,
+            seeds=(101,),
+            device="cuda",
+        )
+    )
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["prompt_token_estimate"] == 90
+    assert "77-token" in metadata["prompt_length_warning"]
 
 
 def test_cli_generate_accepts_scene_plan_file(tmp_path: Path):

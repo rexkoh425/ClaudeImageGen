@@ -6,6 +6,7 @@ from pathlib import Path
 import platform
 import sys
 
+from .diffusion import DiffusionOptions, generate_diffusion_image
 from .generator import GenerateOptions, generate_image
 from .refine import RefineOptions, refine_image
 from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
@@ -113,6 +114,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable local scene-plan refinement between iterations.",
     )
     generate.set_defaults(auto_refine=True)
+
+    diffuse = subcommands.add_parser(
+        "diffuse",
+        help="Generate higher-detail images with optional local Diffusers/Torch backends.",
+    )
+    diffuse.add_argument("--prompt", required=True, help="Text prompt to generate.")
+    diffuse.add_argument("--negative-prompt", help="Negative prompt for the diffusion model.")
+    diffuse.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/diffusion"))
+    diffuse.add_argument("--model", default="stabilityai/sdxl-turbo", help="Diffusers text-to-image model id/path.")
+    diffuse.add_argument("--width", type=int, default=1024)
+    diffuse.add_argument("--height", type=int, default=768)
+    diffuse.add_argument("--steps", type=int, default=4)
+    diffuse.add_argument("--guidance-scale", type=float, default=0.0)
+    diffuse.add_argument(
+        "--seeds",
+        type=_parse_seed_list,
+        default=(101, 202, 303, 404),
+        help="Comma-separated seed list for multi-candidate generation.",
+    )
+    diffuse.add_argument(
+        "--device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for local diffusion generation.",
+    )
+    diffuse.add_argument(
+        "--quality-target",
+        type=float,
+        help="Optional acceptance target; 0.9 still requires Claude visual critique of image.png.",
+    )
 
     refine = subcommands.add_parser("refine", help="Refine from a previous claude-imagegen output directory.")
     refine.add_argument("--from-dir", type=Path, required=True, help="Previous output directory containing image.png.")
@@ -277,7 +308,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("--caption-similarity-model", help="Optional semantic prompt/caption similarity model id/path.")
 
-    subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
+    setup = subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
+    setup.add_argument(
+        "--with-diffusion",
+        action="store_true",
+        help="Also report optional local Diffusers/Torch dependencies for the higher-detail backend.",
+    )
     return parser
 
 
@@ -326,6 +362,34 @@ def main(argv: list[str] | None = None) -> int:
         if result.candidates_path:
             print(f"Candidates {result.candidates_path}")
             print(f"Contact sheet {result.metadata['candidate_contact_sheet']}")
+        return 0
+
+    if args.command == "diffuse":
+        result = generate_diffusion_image(
+            DiffusionOptions(
+                prompt=args.prompt,
+                output_dir=args.output_dir,
+                negative_prompt=args.negative_prompt
+                or "cartoon, illustration, painting, CGI, vector art, low detail, blurry, flat lighting, deformed architecture, people, text, watermark",
+                model=args.model,
+                width=args.width,
+                height=args.height,
+                steps=args.steps,
+                guidance_scale=args.guidance_scale,
+                seeds=args.seeds,
+                device=args.device,
+                quality_target=args.quality_target,
+            )
+        )
+        print(f"Generated {result.image_path}")
+        print(f"Metadata {result.metadata_path}")
+        print(f"Quality {result.metadata['quality_status']} {result.metadata['quality_score']} ({result.metadata['quality_report']})")
+        print(f"Selected seed {result.metadata['selected_seed']} on {result.metadata['effective_device']}")
+        if result.metadata.get("prompt_length_warning"):
+            print(f"Warning {result.metadata['prompt_length_warning']}")
+        print(f"Candidates {result.candidates_path}")
+        print(f"Contact sheet {result.contact_sheet_path}")
+        print(f"Critique request {result.critique_request_path}")
         return 0
 
     if args.command == "refine":
@@ -450,13 +514,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report["status"] == "pass" else 1
 
     if args.command == "setup":
-        status = _setup_status()
+        status = _setup_status(include_diffusion=args.with_diffusion)
         print("claude-imagegen setup ok" if status["ready"] else "claude-imagegen setup incomplete")
         print(f"Python {status['python_version']} ({status['python_executable']})")
         for dependency in status["dependencies"]:
             state = "ok" if dependency["available"] else "missing"
             print(f"{dependency['name']} {state}")
         print("First run bootstrap creates a plugin-owned virtual environment when numpy or Pillow are missing.")
+        if args.with_diffusion:
+            print("Diffusion optional ready" if status["diffusion_ready"] else "Diffusion optional incomplete")
+            for dependency in status["diffusion_dependencies"]:
+                state = "ok" if dependency["available"] else "missing"
+                print(f"{dependency['name']} {state}")
+            print('Install diffusion extras with: python -m pip install -e ".[diffusion]"')
         return 0 if status["ready"] else 1
 
     parser.error(f"Unknown command: {args.command}")
@@ -470,7 +540,17 @@ def _parse_cli_size(value: str) -> tuple[int, int]:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
-def _setup_status() -> dict[str, object]:
+def _parse_seed_list(value: str) -> tuple[int, ...]:
+    try:
+        seeds = tuple(int(seed.strip()) for seed in value.split(",") if seed.strip())
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("seeds must be comma-separated integers") from exc
+    if not seeds:
+        raise argparse.ArgumentTypeError("at least one seed is required")
+    return seeds
+
+
+def _setup_status(*, include_diffusion: bool = False) -> dict[str, object]:
     dependencies = [
         {"name": "numpy", "module": "numpy"},
         {"name": "Pillow", "module": "PIL"},
@@ -482,12 +562,29 @@ def _setup_status() -> dict[str, object]:
         }
         for dependency in dependencies
     ]
-    return {
+    status: dict[str, object] = {
         "ready": all(bool(dependency["available"]) for dependency in statuses),
         "python_executable": sys.executable,
         "python_version": platform.python_version(),
         "dependencies": statuses,
     }
+    if include_diffusion:
+        diffusion_dependencies = [
+            {"name": "torch", "module": "torch"},
+            {"name": "diffusers", "module": "diffusers"},
+            {"name": "accelerate", "module": "accelerate"},
+            {"name": "transformers", "module": "transformers"},
+        ]
+        diffusion_statuses = [
+            {
+                "name": dependency["name"],
+                "available": importlib.util.find_spec(str(dependency["module"])) is not None,
+            }
+            for dependency in diffusion_dependencies
+        ]
+        status["diffusion_dependencies"] = diffusion_statuses
+        status["diffusion_ready"] = all(bool(dependency["available"]) for dependency in diffusion_statuses)
+    return status
 
 
 if __name__ == "__main__":

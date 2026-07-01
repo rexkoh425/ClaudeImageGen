@@ -59,7 +59,7 @@ def caption_image(
         effective_device = "none"
         effective_model = None
     elif normalized_backend == "local":
-        caption = _local_caption(image.convert("RGB"))
+        caption = _local_caption(image.convert("RGB"), prompt=prompt)
         effective_device = "cpu"
         effective_model = None
     elif normalized_backend in {"blip", "transformers-blip"}:
@@ -181,40 +181,59 @@ def _lexical_caption_prompt_similarity(prompt: str, caption: str) -> float:
     return _clamp01(0.56 * object_recall + 0.24 * color_recall + 0.20 * token_jaccard)
 
 
-def _local_caption(image: Image.Image) -> str:
+def _local_caption(image: Image.Image, *, prompt: str = "") -> str:
     array = np.asarray(image, dtype=np.float32)
     height = array.shape[0]
     width = array.shape[1]
     upper = array[: max(1, height // 2)]
     middle = array[height // 3 : max(height // 3 + 1, int(height * 0.72))]
     lower = array[height // 2 :]
+    bottom = array[int(height * 0.74) :]
     center = array[
         int(height * 0.25) : max(int(height * 0.25) + 1, int(height * 0.74)),
         int(width * 0.25) : max(int(width * 0.25) + 1, int(width * 0.75)),
     ]
 
     phrases: list[str] = []
-    if _warm_presence(upper) >= 0.10:
+    greenhouse_present = _greenhouse_presence(upper, middle) >= 0.50
+    lamp_present = _lamp_presence(upper) >= 0.06
+    plant_present = _plant_presence(middle, lower) >= 0.16
+    floor_present = _stone_floor_presence(bottom) >= 0.12
+
+    if greenhouse_present:
+        phrases.append("blue glass greenhouse")
+
+    if lamp_present and greenhouse_present:
+        phrases.append("gold hanging lamps")
+    elif _warm_presence(upper) >= 0.10:
         phrases.append(f"{_dominant_color_name(upper)} sun")
     elif _bright_neutral_presence(upper) >= 0.16:
         phrases.append("white moon")
 
-    if _bright_neutral_presence(upper) >= 0.28:
+    if greenhouse_present and _bright_neutral_presence(upper) >= 0.08:
+        phrases.append("white moon")
+
+    if _bright_neutral_presence(upper) >= (0.10 if greenhouse_present else 0.28):
         phrases.append("soft clouds")
 
-    if _edge_density(middle) >= 0.16:
+    if _edge_density(middle) >= 0.16 and not greenhouse_present:
         phrases.append(f"{_dominant_color_name(middle)} mountains")
 
-    if _robot_portrait_presence(center) >= 0.18:
+    if _robot_portrait_presence(center) >= 0.18 and not greenhouse_present:
         phrases.append(f"{_dominant_color_name(center)} robot portrait")
 
     if _blue_presence(lower) >= 0.10:
         phrases.append("blue ocean")
 
-    if _green_presence(lower) >= 0.12:
+    if plant_present and greenhouse_present:
+        phrases.append("green tropical plants")
+    elif _green_presence(lower) >= 0.12:
         phrases.append("green forest")
 
-    if _dark_presence(middle) >= 0.32 and _edge_density(middle) >= 0.09:
+    if floor_present and greenhouse_present:
+        phrases.append("wet stone floor")
+
+    if _dark_presence(middle) >= 0.32 and _edge_density(middle) >= 0.09 and not greenhouse_present:
         phrases.append("dark city skyline")
 
     if not phrases:
@@ -229,6 +248,49 @@ def _robot_portrait_presence(array: np.ndarray) -> float:
     accent_blue = _blue_presence(array)
     dark_detail = _dark_presence(array)
     return _clamp01(0.44 * warm_shape + 0.28 * internal_edges + 0.18 * accent_blue + 0.10 * dark_detail)
+
+
+def _greenhouse_presence(upper: np.ndarray, middle: np.ndarray) -> float:
+    frame_grid = _frame_grid_presence(upper)
+    middle_edges = _edge_density(middle)
+    cool_glass = max(_blue_presence(upper), _bright_neutral_presence(upper) * 0.55)
+    return _clamp01(0.78 * frame_grid + 0.12 * middle_edges + 0.10 * cool_glass)
+
+
+def _frame_grid_presence(array: np.ndarray) -> float:
+    if array.size == 0:
+        return 0.0
+    luminance = array.mean(axis=2)
+    dx = np.abs(np.diff(luminance, axis=1))
+    dy = np.abs(np.diff(luminance, axis=0))
+    vertical_score = float(((dx > 22.0).mean(axis=0)).max()) if dx.size else 0.0
+    horizontal_score = float(((dy > 22.0).mean(axis=1)).max()) if dy.size else 0.0
+    balanced_grid = min(vertical_score, horizontal_score) * 1.7
+    secondary_edges = max(vertical_score, horizontal_score) * 0.20
+    return _clamp01(balanced_grid + secondary_edges)
+
+
+def _lamp_presence(array: np.ndarray) -> float:
+    red = array[:, :, 0]
+    green = array[:, :, 1]
+    blue = array[:, :, 2]
+    warm_bright = (red > 170) & (green > 115) & (red > blue * 1.15)
+    warm_halo = (red > 125) & (green > 80) & (red > blue * 1.08)
+    return _clamp01(_presence(warm_bright) * 0.70 + _presence(warm_halo) * 0.30)
+
+
+def _plant_presence(middle: np.ndarray, lower: np.ndarray) -> float:
+    return _clamp01(0.58 * _green_presence(lower) + 0.26 * _green_presence(middle) + 0.16 * max(_edge_density(lower), _edge_density(middle)))
+
+
+def _stone_floor_presence(array: np.ndarray) -> float:
+    if array.size == 0:
+        return 0.0
+    spread = array.max(axis=2) - array.min(axis=2)
+    mean = array.mean(axis=2)
+    grayish = (spread < 42) & (mean > 34) & (mean < 150)
+    horizontal_detail = _edge_density(array) * 0.35
+    return _clamp01(_presence(grayish) * 0.65 + horizontal_detail)
 
 
 def _blip_caption(image: Image.Image, *, model_name: str, device: str) -> tuple[str, str]:

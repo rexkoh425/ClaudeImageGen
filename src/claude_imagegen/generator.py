@@ -416,6 +416,10 @@ def _default_planned_object(kind: str, *, index: int, scene_plan: ScenePlan) -> 
         "sun": (0.28, 0.25, 0.16),
         "moon": (0.72, 0.22, 0.12),
         "cloud": (0.62, 0.25, 0.12),
+        "greenhouse": (0.50, 0.16, 0.88),
+        "lamp": (0.50, 0.22, 0.08),
+        "plant": (0.50, 0.70, 0.30),
+        "floor": (0.50, 0.78, 0.22),
         "mountain": (0.50, 0.55, 0.28),
         "ocean": (0.50, 0.58, 0.18),
         "forest": (0.50, 0.78, 0.22),
@@ -428,6 +432,10 @@ def _default_planned_object(kind: str, *, index: int, scene_plan: ScenePlan) -> 
     x, y, size = defaults.get(kind, (0.50, 0.50, 0.18))
     if kind in {"ocean", "mountain", "forest", "flower", "building"}:
         extra = {"layers": 3} if kind == "mountain" else {}
+    elif kind == "lamp":
+        extra = {"count": 3, "spread": 0.36}
+    elif kind == "plant":
+        extra = {"count": 20}
     else:
         extra = {}
     return PlannedObject(
@@ -469,6 +477,14 @@ def _object_color(kind: str, scene_plan: ScenePlan) -> RGB:
         return (232, 230, 210)
     if kind in {"ocean", "water", "lake"}:
         return COLOR_RGB["blue"]
+    if kind == "greenhouse":
+        return (118, 142, 150)
+    if kind == "lamp":
+        return COLOR_RGB["gold"]
+    if kind == "floor":
+        return (78, 86, 88)
+    if kind == "plant":
+        return COLOR_RGB["green"]
     if kind in {"forest", "flower"}:
         return COLOR_RGB["green"]
     if kind == "cloud":

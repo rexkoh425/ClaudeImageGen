@@ -278,6 +278,22 @@ def _draw_planned_object(
         draw.ellipse((cx - radius // 3, cy - radius, cx + radius, cy + radius), fill=(28, 38, 62, min(180, alpha)))
         return
 
+    if kind in {"greenhouse", "glasshouse", "conservatory", "atrium"}:
+        _draw_planned_greenhouse(draw, obj, width, height)
+        return
+
+    if kind in {"lamp", "lamps", "light", "lights", "pendant"}:
+        _draw_planned_lamps(draw, obj, width, height)
+        return
+
+    if kind in {"plant", "plants", "foliage", "leaf", "leaves", "tropical"}:
+        _draw_planned_plants(draw, obj, width, height, seed)
+        return
+
+    if kind in {"floor", "stone", "tile", "tiles", "wet-floor", "wet_floor"}:
+        _draw_planned_floor(draw, obj, width, height)
+        return
+
     if kind in {"ocean", "water", "lake"}:
         y0 = int(height * obj.y)
         draw.rectangle((0, y0, width, height), fill=(*blend(obj.color, (18, 70, 125), 0.20), alpha))
@@ -561,6 +577,8 @@ def _draw_planned_material(
         _draw_material_foliage(draw, material, (left, top, right, bottom), rng)
     elif material.kind in {"metal", "steel", "chrome"}:
         _draw_material_metal(draw, material, (left, top, right, bottom), rng)
+    elif material.kind in {"stone", "floor", "tile", "tiles", "wet-stone", "wet_stone"} or "stone" in material.label.lower() or "floor" in material.label.lower():
+        _draw_material_stone(draw, material, (left, top, right, bottom), rng)
     else:
         _draw_material_surface(draw, material, (left, top, right, bottom), rng)
 
@@ -969,6 +987,36 @@ def _draw_material_metal(
         draw.line((left, y, right, y + rng.randint(-2, 2)), fill=(*color, alpha), width=max(1, int(region_w * material.scale * 0.02)))
 
 
+def _draw_material_stone(
+    draw: ImageDraw.ImageDraw,
+    material: PlannedMaterial,
+    bounds: tuple[int, int, int, int],
+    rng: random.Random,
+) -> None:
+    left, top, right, bottom = bounds
+    region_w = max(1, right - left)
+    region_h = max(1, bottom - top)
+    line = blend(material.colors[0], (220, 230, 232), 0.28)
+    shadow = blend(material.colors[min(1, len(material.colors) - 1)], (0, 0, 0), 0.25)
+    alpha = max(45, min(210, int(255 * material.opacity * (0.34 + material.intensity * 0.32))))
+    tile_h = max(8, int(region_h * max(0.12, material.scale * 4.0)))
+    tile_w = max(14, int(region_w * max(0.10, material.scale * 5.0)))
+
+    for y in range(top + tile_h, bottom, tile_h):
+        draw.line((left, y, right, y + rng.randint(-1, 1)), fill=(*line, alpha), width=1)
+    offset = 0
+    for x in range(left + tile_w, right, tile_w):
+        draw.line((x + offset, top, x + offset + rng.randint(-1, 1), bottom), fill=(*shadow, max(30, alpha // 2)), width=1)
+        offset = 0 if offset else tile_w // 2
+
+    glints = max(8, int(region_w * region_h * material.intensity * 0.004))
+    for _ in range(min(glints, 200)):
+        x = rng.randint(left, max(left, right - 1))
+        y = rng.randint(top, max(top, bottom - 1))
+        length = rng.randint(max(4, region_w // 80), max(8, region_w // 24))
+        draw.line((x, y, min(right - 1, x + length), y + rng.randint(-1, 1)), fill=(230, 240, 235, max(55, alpha)), width=1)
+
+
 def _draw_material_surface(
     draw: ImageDraw.ImageDraw,
     material: PlannedMaterial,
@@ -1310,6 +1358,119 @@ def _draw_planned_buildings(draw: ImageDraw.ImageDraw, obj: PlannedObject, width
         draw.rectangle((x, base - h, x + building_w, base), fill=(*obj.color, 220))
         for y in range(base - h + 8, base - 5, 14):
             draw.rectangle((x + 4, y, x + min(building_w - 3, 10), y + 5), fill=(245, 214, 115, 105))
+
+
+def _draw_planned_greenhouse(draw: ImageDraw.ImageDraw, obj: PlannedObject, width: int, height: int) -> None:
+    span = max(0.20, min(0.96, obj.size)) * width * 0.50
+    cx = int(width * obj.x)
+    apex_y = int(height * max(0.02, obj.y - obj.size * 0.08))
+    eave_y = int(height * min(0.62, obj.y + obj.size * 0.06))
+    base_y = int(height * min(0.72, obj.y + obj.size * 0.34))
+    left = int(max(0, cx - span))
+    right = int(min(width, cx + span))
+    frame = (*blend(obj.color, (220, 240, 245), 0.20), max(80, int(obj.opacity * 235)))
+    glass = (*blend(obj.color, (45, 86, 112), 0.45), max(18, int(obj.opacity * 38)))
+    line_w = max(1, int(min(width, height) * max(0.008, obj.size * 0.006)))
+
+    draw.polygon([(left, eave_y), (cx, apex_y), (right, eave_y), (right, base_y), (left, base_y)], fill=glass)
+    draw.line((left, eave_y, cx, apex_y, right, eave_y), fill=frame, width=line_w)
+    draw.line((left, eave_y, left, base_y, right, base_y, right, eave_y), fill=frame, width=line_w)
+    pane_count = max(3, min(9, int(obj.extra.get("panes", 6))))
+    for index in range(1, pane_count):
+        x = left + int((right - left) * index / pane_count)
+        roof_y = int(eave_y - (eave_y - apex_y) * (1.0 - abs((x - cx) / max(1, span))))
+        draw.line((x, roof_y, x, base_y), fill=(*obj.color, max(55, int(obj.opacity * 145))), width=max(1, line_w - 1))
+    for t in (0.36, 0.62):
+        y = int(eave_y + (base_y - eave_y) * t)
+        draw.line((left, y, right, y), fill=(*obj.color, max(45, int(obj.opacity * 115))), width=max(1, line_w - 1))
+
+
+def _draw_planned_lamps(draw: ImageDraw.ImageDraw, obj: PlannedObject, width: int, height: int) -> None:
+    count = max(1, min(8, int(obj.extra.get("count", 1))))
+    spread = float(obj.extra.get("spread", max(0.10, obj.size * 2.4)))
+    radius = max(4, int(min(width, height) * max(0.025, obj.size)))
+    for index in range(count):
+        offset = 0.0 if count == 1 else (index / (count - 1) - 0.5) * spread
+        cx = int(width * max(0.04, min(0.96, obj.x + offset)))
+        cy = int(height * obj.y)
+        cord_top = max(0, cy - int(height * max(0.08, obj.size * 1.9)))
+        draw.line((cx, cord_top, cx, cy - radius), fill=(12, 14, 12, 190), width=max(1, width // 420))
+        for step in range(4, 0, -1):
+            current = radius * (1.0 + step * 0.75)
+            alpha = int(obj.opacity * (18 + step * 18))
+            draw.ellipse((cx - current, cy - current, cx + current, cy + current), fill=(*obj.color, alpha))
+        core = blend(obj.color, (255, 248, 220), 0.58)
+        draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=(*core, max(155, int(obj.opacity * 255))))
+
+
+def _draw_planned_plants(draw: ImageDraw.ImageDraw, obj: PlannedObject, width: int, height: int, seed: int) -> None:
+    rng = random.Random(seed + int(obj.x * 1000) + int(obj.y * 1000) + 613)
+    count = max(4, min(120, int(obj.extra.get("count", 14))))
+    center_x = int(width * obj.x)
+    base_y = int(height * obj.y)
+    reach_x = max(12, int(width * max(0.08, obj.size * 0.85)))
+    reach_y = max(14, int(height * max(0.12, obj.size * 0.95)))
+    stem_color = blend(obj.color, (20, 58, 38), 0.45)
+    highlight = blend(obj.color, (90, 190, 120), 0.35)
+
+    anchor_specs = [(-0.33, -0.06, 1.25), (0.0, -0.13, 1.10), (0.33, -0.04, 1.18)]
+    for offset_x, offset_y, scale in anchor_specs:
+        leaf_x = center_x + int(reach_x * offset_x)
+        leaf_y = base_y + int(reach_y * offset_y)
+        leaf_w = int(reach_x * 0.34 * scale)
+        leaf_h = int(reach_y * 0.30 * scale)
+        _draw_leaf(draw, leaf_x, leaf_y, leaf_w, leaf_h, obj.color, highlight, alpha=max(120, int(obj.opacity * 235)))
+
+    for _ in range(count):
+        leaf_x = center_x + rng.randint(-reach_x, reach_x)
+        leaf_y = base_y + rng.randint(-reach_y, max(2, reach_y // 4))
+        leaf_w = max(4, int(reach_x * rng.uniform(0.12, 0.28)))
+        leaf_h = max(6, int(reach_y * rng.uniform(0.12, 0.34)))
+        color = blend(obj.color, (8, 38, 22), rng.uniform(0.0, 0.45))
+        draw.line((leaf_x, base_y + rng.randint(-3, 8), leaf_x, leaf_y + leaf_h // 2), fill=(*stem_color, 170), width=max(1, width // 380))
+        _draw_leaf(draw, leaf_x, leaf_y, leaf_w, leaf_h, color, highlight, alpha=max(90, int(obj.opacity * rng.uniform(130, 225))))
+
+
+def _draw_leaf(
+    draw: ImageDraw.ImageDraw,
+    cx: int,
+    cy: int,
+    half_w: int,
+    half_h: int,
+    color: RGB,
+    vein: RGB,
+    *,
+    alpha: int,
+) -> None:
+    points = [
+        (cx, cy - half_h),
+        (cx - half_w, cy),
+        (cx, cy + half_h),
+        (cx + half_w, cy),
+    ]
+    draw.polygon(points, fill=(*color, alpha))
+    draw.line((cx, cy - half_h, cx, cy + half_h), fill=(*vein, min(245, alpha + 15)), width=1)
+    draw.line((cx, cy, cx - half_w // 2, cy - half_h // 3), fill=(*vein, min(210, alpha)), width=1)
+    draw.line((cx, cy, cx + half_w // 2, cy - half_h // 3), fill=(*vein, min(210, alpha)), width=1)
+
+
+def _draw_planned_floor(draw: ImageDraw.ImageDraw, obj: PlannedObject, width: int, height: int) -> None:
+    y0 = int(height * obj.y)
+    base = blend(obj.color, (28, 34, 36), 0.28)
+    alpha = max(80, int(obj.opacity * 235))
+    draw.rectangle((0, y0, width, height), fill=(*base, alpha))
+    line = blend(obj.color, (205, 215, 214), 0.22)
+    tile_h = max(8, int(height * max(0.055, obj.size * 0.20)))
+    tile_w = max(18, int(width * max(0.12, obj.size * 0.70)))
+    for y in range(y0 + tile_h, height, tile_h):
+        draw.line((0, y, width, y), fill=(*line, 105), width=1)
+    for row, y in enumerate(range(y0, height, tile_h)):
+        offset = 0 if row % 2 == 0 else tile_w // 2
+        for x in range(-offset, width, tile_w):
+            draw.line((x, y, x, min(height, y + tile_h)), fill=(12, 18, 18, 90), width=1)
+    for i in range(8):
+        y = y0 + int((height - y0) * (i + 1) / 10)
+        draw.line((int(width * 0.18), y, int(width * 0.82), y - 1), fill=(220, 230, 220, 50 + i * 8), width=1)
 
 
 def _scaled_points(points: tuple[tuple[float, float], ...], width: int, height: int) -> list[tuple[int, int]]:

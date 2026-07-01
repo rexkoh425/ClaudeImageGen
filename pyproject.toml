@@ -4,13 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-imagegen"
-version = "0.1.1"
-description = "CPU-first Claude Code image generation plugin prototype with optional model-backed checks"
+version = "0.1.2"
+description = "CPU-first Claude Code image generation plugin prototype with optional local GPU diffusion"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.24",
   "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+diffusion = [
+  "accelerate>=1.11",
+  "diffusers>=0.35",
+  "torch>=2.3",
+  "transformers>=4.53",
 ]
 
 [project.scripts]

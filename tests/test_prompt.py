@@ -18,3 +18,17 @@ def test_parse_prompt_provides_default_scene_when_prompt_is_sparse():
     assert spec.normalized == "quiet dream"
     assert spec.objects == ("abstract",)
     assert spec.color_words
+
+
+def test_parse_prompt_recognizes_greenhouse_scene_objects():
+    spec = parse_prompt(
+        "cinematic glass greenhouse at night with layered tropical plants, mist, "
+        "reflective wet stone floor, and warm hanging lights"
+    )
+
+    assert "greenhouse" in spec.objects
+    assert "plant" in spec.objects
+    assert "floor" in spec.objects
+    assert "lamp" in spec.objects
+    assert "moon" not in spec.objects
+    assert "cloud" not in spec.objects

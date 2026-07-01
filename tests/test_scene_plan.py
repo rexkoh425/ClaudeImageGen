@@ -1895,3 +1895,52 @@ def test_scene_plan_atmosphere_adds_smooth_horizon_depth(tmp_path: Path):
     assert upper == (16, 32, 48)
     assert lower == (16, 32, 48)
     assert max(adjacent_jumps) < 16
+
+
+def test_scene_plan_greenhouse_primitives_render_distinct_semantic_regions(tmp_path: Path):
+    plan_path = tmp_path / "greenhouse-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude greenhouse primitives",
+                "palette": ["#0c2030", "#6f858a", "#1f7a4d", "#f8c86f", "#4d5558"],
+                "background": {
+                    "top": "#0c2030",
+                    "bottom": "#09100d",
+                    "stops": [
+                        {"at": 0.0, "color": "#0c2030"},
+                        {"at": 0.45, "color": "#10261f"},
+                        {"at": 1.0, "color": "#09100d"},
+                    ],
+                },
+                "objects": [
+                    {"type": "greenhouse", "label": "glass roof and mullions", "x": 0.5, "y": 0.16, "size": 0.9, "color": "#6f858a"},
+                    {"type": "lamp", "label": "warm hanging pendant cluster", "x": 0.5, "y": 0.22, "size": 0.08, "color": "#f8c86f", "count": 3},
+                    {"type": "plant", "label": "layered tropical leaves", "x": 0.5, "y": 0.70, "size": 0.30, "color": "#1f7a4d", "count": 18},
+                    {"type": "floor", "label": "wet reflective stone floor", "y": 0.78, "size": 0.22, "color": "#4d5558"},
+                ],
+                "style": {"antialias": 1.0, "detail": 0.7, "sharpen": 0.5},
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = parse_scene_plan(plan_path)
+
+    image_a = render_scene_plan(plan, width=160, height=100, seed=12)
+    image_b = render_scene_plan(plan, width=160, height=100, seed=12)
+    roof_frame = image_a.getpixel((80, 9))
+    lamp_core = image_a.getpixel((80, 22))
+    plant_region = image_a.getpixel((58, 68))
+    floor_region = image_a.getpixel((80, 86))
+    background = image_a.getpixel((8, 8))
+
+    assert image_a.tobytes() == image_b.tobytes()
+    assert sum(roof_frame) > sum(background) + 80
+    assert lamp_core[0] > lamp_core[2] + 80
+    assert lamp_core[1] > lamp_core[2] + 45
+    assert plant_region[1] > plant_region[0] + 20
+    assert plant_region[1] > plant_region[2] + 15
+    assert abs(floor_region[0] - floor_region[1]) < 35
+    assert abs(floor_region[1] - floor_region[2]) < 35
+    assert sum(floor_region) > sum(background) + 45
+    assert image_detail_metrics(image_a)["detail_score"] > 0.42

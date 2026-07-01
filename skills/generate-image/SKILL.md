@@ -1,6 +1,6 @@
 ---
 name: generate-image
-description: Generate a local PNG from a text prompt, optionally using a reference or initial image, through the CPU-first claude-imagegen executable.
+description: Generate a local PNG from a text prompt through the CPU-first claude-imagegen executable, with an optional local Diffusers backend for higher-detail GPU images.
 ---
 
 # Generate Image
@@ -9,10 +9,10 @@ Use this skill when the user asks Claude Code to generate an image from a prompt
 
 ## Vision-in-the-loop refinement (the core loop)
 
-This tool has no external image API. Claude Code itself is the generator (it authors the
-scene plan) and, crucially, the judge. The strongest signal is Claude opening the rendered
-PNG with its own vision and scoring how close it is to the prompt — the LMM-as-evaluator /
-VQAScore idea, run locally with no API. The canonical loop is:
+The default CPU path has no external image API. Claude Code authors the scene plan and,
+crucially, judges the result. The strongest signal is Claude opening the rendered PNG with
+its own vision and scoring how close it is to the prompt — the LMM-as-evaluator /
+VQAScore idea, run locally with no API. The canonical CPU loop is:
 
 1. Author `scene-plan.json` and run `generate` (see Workflow below).
 2. **Open `image.png` with Claude's own vision** and judge it against the prompt. Do not rely
@@ -41,15 +41,35 @@ VQAScore idea, run locally with no API. The canonical loop is:
 
 ## High-quality multi-refinement mode
 
-When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. The local CPU renderer must not mark its own homework: run with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
+When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. If optional Diffusers/Torch dependencies are available and the user wants photoreal detail, prefer `claude-imagegen diffuse` first, then have Claude vision judge the PNG. Otherwise use the CPU scene-plan loop with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
 
 For these runs, set `"style"` with `"detail"` and `"sharpen"` in addition to color grade controls, and make the scene plan visibly dense: use foreground/midground/background separation, materials, textures, shadows, veils, reflections, and small motif detail. Prefer 2-4 refinement rounds with `--save-candidates 4`; do not keep increasing local iterations if Claude vision says the composition is wrong.
+
+Do not claim GPT/Sora parity just because local checks improved. If the user asks for GPT/Sora-level quality, ask Claude vision to judge the PNG directly and report the score honestly; a low `closeness_score` or `sora_gpt_parity: false` means the gate failed. The CPU renderer can produce structured illustrations; photoreal attempts should use an actual image model through `diffuse` or another image-generation backend.
+
+Useful semantic object types for indoor/detail scenes include `"greenhouse"`, `"plant"`, `"lamp"`, and `"floor"` in addition to the older `"sun"`, `"moon"`, `"cloud"`, `"ocean"`, `"mountain"`, `"forest"`, `"building"`, `"portrait"`, and `"robot"` objects. Use `"veils"` for mist/fog and `"clouds"` only when the prompt explicitly asks for clouds; use `"moon"` only when a visible moon is explicitly requested.
 
 First-time setup can be checked with:
 
 ```bash
 claude-imagegen setup
+claude-imagegen setup --with-diffusion
 ```
+
+For photoreal local GPU attempts after diffusion setup, use:
+
+```bash
+claude-imagegen diffuse \
+  --prompt "<user prompt>" \
+  --output-dir "claude-imagegen-output/<short-slug>-gpu" \
+  --width 1024 \
+  --height 768 \
+  --seeds 101,202,303,404 \
+  --device auto \
+  --quality-target 0.9
+```
+
+Then inspect `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting the result.
 
 `critique.json` schema (all fields optional except `closeness_score`):
 
@@ -215,7 +235,7 @@ If saved candidates exist, prefer `--candidate-rank auto` so the refine command 
 
 ## Constraints
 
-- This is a CPU-first renderer. Do not install GPU diffusion packages for this skill.
+- This is CPU-first by default. Install or use GPU diffusion packages only when the user asks for higher-detail photoreal output or explicitly accepts the optional diffusion setup.
 - Resolution is capped at 2048x2048 while preserving aspect ratio.
 - The default scorer and captioner are lightweight local prompt/reference proxies with explicit cosine and caption backchecking. Optional `transformers-clip`, `transformers-siglip`, `transformers-dinov2`, `transformers-blip`, and `transformers-sentence` are only for stronger model-backed checks when dependencies and weights are already available or the user accepts downloading them.
-- The best quality path is Claude-authored `scene-plan.json`; avoid relying on keyword-only generation unless the user asks for a quick rough draft.
+- The best CPU quality path is Claude-authored `scene-plan.json`; for photoreal detail, use `claude-imagegen diffuse` plus Claude visual critique instead of relying on keyword-only CPU generation.

@@ -1,7 +1,7 @@
 {
   "name": "claude-imagegen",
   "description": "GitHub marketplace for installing the Claude ImageGen plugin on another machine.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "owner": {
     "name": "ClaudeImageGen"
   },
@@ -9,21 +9,23 @@
     {
       "name": "claude-imagegen",
       "displayName": "Claude ImageGen",
-      "description": "Generate local CPU-first images from Claude-authored scene plans with optional model-backed checks.",
-      "version": "0.1.1",
+      "description": "Generate local CPU-first images from Claude-authored scene plans with optional GPU diffusion.",
+      "version": "0.1.2",
       "source": "./",
       "category": "creative",
       "keywords": [
         "image-generation",
         "scene-plan",
         "cpu-renderer",
-        "caption-backcheck"
+        "caption-backcheck",
+        "diffusers"
       ],
       "tags": [
         "image-generation",
         "creative",
         "cpu",
-        "caption"
+        "caption",
+        "gpu"
       ],
       "license": "MIT",
       "strict": true,

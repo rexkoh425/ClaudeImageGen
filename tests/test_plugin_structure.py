@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.1"
+EXPECTED_VERSION = "0.1.2"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -28,12 +28,12 @@ def test_repo_contains_installable_claude_marketplace_manifest():
         {
             "name": "claude-imagegen",
             "displayName": "Claude ImageGen",
-            "description": "Generate local CPU-first images from Claude-authored scene plans with optional model-backed checks.",
+            "description": "Generate local CPU-first images from Claude-authored scene plans with optional GPU diffusion.",
             "version": EXPECTED_VERSION,
             "source": "./",
             "category": "creative",
-            "keywords": ["image-generation", "scene-plan", "cpu-renderer", "caption-backcheck"],
-            "tags": ["image-generation", "creative", "cpu", "caption"],
+            "keywords": ["image-generation", "scene-plan", "cpu-renderer", "caption-backcheck", "diffusers"],
+            "tags": ["image-generation", "creative", "cpu", "caption", "gpu"],
             "license": "MIT",
             "strict": True,
             "defaultEnabled": True,
@@ -49,6 +49,7 @@ def test_claude_skill_and_executable_are_present():
 
     assert skill.exists()
     assert "claude-imagegen generate" in skill_text
+    assert "claude-imagegen diffuse" in skill_text
     assert "--scene-plan" in skill_text
     assert "scene-plan.json" in skill_text
     assert '"stops"' in skill_text
@@ -107,7 +108,13 @@ def test_claude_skill_and_executable_are_present():
     assert "nonblank" in skill_text
     assert "--quality-target 0.9" in skill_text
     assert "multi-refinement" in skill_text
+    assert "GPT/Sora parity" in skill_text
+    assert '"greenhouse"' in skill_text
+    assert '"plant"' in skill_text
+    assert '"lamp"' in skill_text
+    assert '"floor"' in skill_text
     assert "claude-imagegen setup" in skill_text
+    assert "claude-imagegen setup --with-diffusion" in skill_text
     assert executable.exists()
     executable_text = executable.read_text(encoding="utf-8")
     assert "claude_imagegen.cli" in executable_text
@@ -133,12 +140,16 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "sign in to GitHub if this repo is private" in readme
     assert "Restart Claude Code after installation" in readme
     assert "python -m pip install -e ." in readme
+    assert 'python -m pip install -e ".[diffusion]"' in readme
+    assert "claude-imagegen diffuse" in readme
+    assert "claude-imagegen setup --with-diffusion" in readme
     assert "scene-plan.json" in readme
     assert "image.png" in readme
     assert "metadata.json" in readme
     assert "quality-report.json" in readme
     assert "claude-imagegen setup" in readme
     assert "--quality-target 0.9" in readme
+    assert "GPT/Sora-level parity is not claimed" in readme
     assert "multi-refinement" in readme
     assert "critique-request.json" in readme
     assert "comparison-request.json" in readme
