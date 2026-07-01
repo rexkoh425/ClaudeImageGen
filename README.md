@@ -17,6 +17,12 @@ On another machine, install Claude Code, sign in to GitHub if this repo is priva
 
 Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded.
 
+Optional first-run preflight:
+
+```bash
+claude-imagegen setup
+```
+
 ## Quick Start
 
 Ask Claude Code to use the `generate-image` skill, or run the command directly:
@@ -28,10 +34,11 @@ claude-imagegen generate \
   --width 720 \
   --height 480 \
   --max-iterations 32 \
+  --quality-target 0.9 \
   --save-candidates 4
 ```
 
-For better quality, ask Claude Code to write a `scene-plan.json` first. Scene plans let Claude control palette, objects, background, lighting, atmosphere, textures, reflections, focus, and final style.
+For better quality, ask Claude Code to run a multi-refinement loop: write `scene-plan.json`, render, inspect `image.png`, fill `critique.json`, refine, and stop only when `quality-report.json` says `target_quality_met` is true. Scene plans let Claude control palette, objects, background, lighting, atmosphere, textures, reflections, focus, `detail`, `sharpen`, and final style.
 
 Then run:
 
@@ -41,7 +48,8 @@ claude-imagegen generate \
   --scene-plan claude-imagegen-output/demo/scene-plan.json \
   --output-dir claude-imagegen-output/demo \
   --width 720 \
-  --height 480
+  --height 480 \
+  --quality-target 0.9
 ```
 
 ## Outputs

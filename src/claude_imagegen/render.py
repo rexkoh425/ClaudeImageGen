@@ -169,6 +169,12 @@ def _render_scene_plan_base(plan: ScenePlan, width: int, height: int, seed: int)
             contrast=plan.style.get("contrast", 0.0),
             warmth=plan.style.get("warmth", 0.0),
         )
+    if any(plan.style.get(key, 0.0) > 0 for key in ("detail", "sharpen")):
+        image = _apply_detail_enhancement(
+            image,
+            detail=plan.style.get("detail", 0.0),
+            sharpen=plan.style.get("sharpen", 0.0),
+        )
     if plan.style.get("grain", 0.0) > 0:
         image = _add_grain(image, plan.style["grain"], seed)
     if plan.style.get("vignette", 0.0) > 0:
@@ -179,6 +185,29 @@ def _render_scene_plan_base(plan: ScenePlan, width: int, height: int, seed: int)
 
 def _antialias_scale(amount: float) -> int:
     return 2 if amount > 0 else 1
+
+
+def _apply_detail_enhancement(image: Image.Image, *, detail: float, sharpen: float) -> Image.Image:
+    detail_amount = max(0.0, min(1.0, detail))
+    sharpen_amount = max(0.0, min(1.0, sharpen))
+    enhanced = image.convert("RGB")
+    if detail_amount > 0:
+        enhanced = enhanced.filter(
+            ImageFilter.UnsharpMask(
+                radius=0.8 + detail_amount * 1.4,
+                percent=int(80 + detail_amount * 240),
+                threshold=max(0, int(round(5 - detail_amount * 4))),
+            )
+        )
+    if sharpen_amount > 0:
+        enhanced = enhanced.filter(
+            ImageFilter.UnsharpMask(
+                radius=0.6 + sharpen_amount * 0.8,
+                percent=int(70 + sharpen_amount * 180),
+                threshold=max(0, int(round(4 - sharpen_amount * 3))),
+            )
+        )
+    return enhanced.convert("RGB")
 
 
 def _gradient(width: int, height: int, candidate: SceneCandidate) -> Image.Image:

@@ -5,6 +5,7 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 DATA_ROOT="${CLAUDE_PLUGIN_DATA:-${XDG_DATA_HOME:-${HOME:-${PLUGIN_ROOT}/.claude-imagegen-data}/.local/share}/claude-imagegen}"
 VENV_DIR="${CLAUDE_IMAGEGEN_VENV:-${DATA_ROOT}/venv}"
 BOOTSTRAP="${CLAUDE_IMAGEGEN_BOOTSTRAP:-1}"
+export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 deps_available() {
   "$1" - <<'PY' >/dev/null 2>&1
@@ -30,8 +31,9 @@ if ! deps_available "$PYTHON"; then
   PYTHON="$VENV_DIR/bin/python"
 
   if ! deps_available "$PYTHON"; then
-    "$PYTHON" -m "pip" install --upgrade pip
-    "$PYTHON" -m "pip" install "$PLUGIN_ROOT"
+    echo "Setting up claude-imagegen dependencies in ${VENV_DIR}..." >&2
+    "$PYTHON" -m "pip" install --quiet --upgrade pip
+    "$PYTHON" -m "pip" install --quiet "$PLUGIN_ROOT"
   fi
 fi
 

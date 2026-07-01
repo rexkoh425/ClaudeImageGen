@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from claude_imagegen.generator import GenerateOptions, generate_image
+from claude_imagegen.quality import image_detail_metrics
 from claude_imagegen.render import render_scene_plan
 from claude_imagegen.scene_plan import parse_scene_plan
 
@@ -1774,6 +1775,53 @@ def test_scene_plan_style_color_grade_adjusts_final_image(tmp_path: Path):
     assert graded_pixel[0] > base_pixel[0] + 8
     assert graded_pixel[2] < base_pixel[2]
     assert max(graded_pixel) - min(graded_pixel) > max(base_pixel) - min(base_pixel)
+
+
+def test_scene_plan_detail_style_controls_cpu_sharpening(tmp_path: Path):
+    base_plan = {
+        "title": "detail style test",
+        "palette": ["#102040", "#d8f0ff"],
+        "background": {"top": "#102040", "bottom": "#d8f0ff"},
+        "objects": [{"type": "mountain", "x": 0.5, "y": 0.52, "size": 0.32, "color": "#455a78", "layers": 3}],
+        "elements": [
+            {
+                "type": "polyline",
+                "points": [[0.08, 0.72], [0.25, 0.66], [0.46, 0.74], [0.72, 0.64], [0.94, 0.70]],
+                "stroke": "#f6e2b5",
+                "width": 0.012,
+                "opacity": 0.72,
+                "z": 8,
+            }
+        ],
+        "textures": [
+            {
+                "type": "hatching",
+                "count": 120,
+                "region": [0.05, 0.45, 0.95, 0.92],
+                "color": "#ffffff",
+                "density": 0.8,
+                "scale": 0.025,
+                "opacity": 0.28,
+                "blend": "screen",
+                "seed": 8,
+                "z": 9,
+            }
+        ],
+        "style": {"antialias": 1.0},
+    }
+    plain_path = tmp_path / "plain.json"
+    detail_path = tmp_path / "detail.json"
+    plain_path.write_text(json.dumps(base_plan), encoding="utf-8")
+    detailed_plan = dict(base_plan)
+    detailed_plan["style"] = {"antialias": 1.0, "detail": 0.8, "sharpen": 0.7}
+    detail_path.write_text(json.dumps(detailed_plan), encoding="utf-8")
+
+    plain = render_scene_plan(parse_scene_plan(plain_path), width=160, height=96, seed=4)
+    detailed = render_scene_plan(parse_scene_plan(detail_path), width=160, height=96, seed=4)
+
+    assert parse_scene_plan(detail_path).style["detail"] == 0.8
+    assert parse_scene_plan(detail_path).style["sharpen"] == 0.7
+    assert image_detail_metrics(detailed)["detail_score"] > image_detail_metrics(plain)["detail_score"]
 
 
 def test_scene_plan_style_bloom_spreads_bright_regions_softly(tmp_path: Path):

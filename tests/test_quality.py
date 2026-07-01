@@ -1,4 +1,68 @@
-from claude_imagegen.quality import build_quality_report
+from PIL import Image, ImageDraw
+
+from claude_imagegen.quality import build_quality_report, image_detail_metrics
+
+
+def test_image_detail_metrics_penalize_flat_canvas():
+    flat = Image.new("RGB", (96, 64), (120, 120, 120))
+    detailed = Image.new("RGB", (96, 64), (120, 120, 120))
+    draw = ImageDraw.Draw(detailed)
+    for offset in range(0, 96, 6):
+        draw.line((offset, 0, 95 - offset // 2, 63), fill=(240, 240, 240), width=2)
+    for x in range(8, 88, 16):
+        draw.rectangle((x, 16, x + 8, 46), outline=(30, 30, 30), width=2)
+
+    flat_metrics = image_detail_metrics(flat)
+    detailed_metrics = image_detail_metrics(detailed)
+
+    assert flat_metrics["detail_score"] < 0.2
+    assert detailed_metrics["detail_score"] > flat_metrics["detail_score"] + 0.35
+    assert detailed_metrics["edge_density"] > flat_metrics["edge_density"]
+
+
+def test_high_quality_target_requires_independent_visual_and_detail_evidence():
+    report = build_quality_report(
+        {
+            "total_score": 0.97,
+            "threshold": 0.58,
+            "caption_similarity_score": 0.91,
+            "width": 96,
+            "height": 64,
+            "quality_target": 0.9,
+            "image_detail_score": 0.84,
+        }
+    )
+
+    gate = next(check for check in report["checks"] if check["name"] == "independent_quality_gate")
+    assert report["status"] == "revise"
+    assert report["target_quality_met"] is False
+    assert gate["status"] == "revise"
+    assert gate["visual_closeness_score"] is None
+    assert "Claude visual critique is required before accepting a 0.900 quality target." in report["next_actions"]
+
+    accepted = build_quality_report(
+        {
+            "total_score": 0.96,
+            "threshold": 0.58,
+            "caption_similarity_score": 0.92,
+            "width": 96,
+            "height": 64,
+            "quality_target": 0.9,
+            "image_detail_score": 0.86,
+            "visual_critique": {
+                "closeness_score": 0.93,
+                "element_checks": [
+                    {"kind": "object", "item": "sun", "present": True, "confidence": 0.95},
+                    {"kind": "style", "item": "cinematic", "present": True, "confidence": 0.9},
+                ],
+            },
+        }
+    )
+
+    accepted_gate = next(check for check in accepted["checks"] if check["name"] == "independent_quality_gate")
+    assert accepted["target_quality_met"] is True
+    assert accepted_gate["status"] == "pass"
+    assert accepted_gate["score"] >= 0.9
 
 
 def test_quality_report_surfaces_failed_visual_element_checks_as_next_actions():

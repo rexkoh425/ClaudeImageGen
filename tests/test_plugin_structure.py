@@ -3,6 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_VERSION = "0.1.1"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -10,7 +11,7 @@ def test_plugin_manifest_has_required_metadata():
 
     assert manifest["name"] == "claude-imagegen"
     assert manifest["displayName"] == "Claude ImageGen"
-    assert manifest["version"]
+    assert manifest["version"] == EXPECTED_VERSION
     assert "Image generation" in manifest["description"]
     assert manifest["license"] == "MIT"
     assert "image-generation" in manifest["keywords"]
@@ -28,7 +29,7 @@ def test_repo_contains_installable_claude_marketplace_manifest():
             "name": "claude-imagegen",
             "displayName": "Claude ImageGen",
             "description": "Generate local CPU-first images from Claude-authored scene plans with optional model-backed checks.",
-            "version": "0.1.0",
+            "version": EXPECTED_VERSION,
             "source": "./",
             "category": "creative",
             "keywords": ["image-generation", "scene-plan", "cpu-renderer", "caption-backcheck"],
@@ -77,6 +78,8 @@ def test_claude_skill_and_executable_are_present():
     assert '"warmth"' in skill_text
     assert '"bloom"' in skill_text
     assert '"antialias"' in skill_text
+    assert '"detail"' in skill_text
+    assert '"sharpen"' in skill_text
     assert "revision_hints" in skill_text
     assert "critique-request.json" in skill_text
     assert "comparison-request.json" in skill_text
@@ -102,12 +105,17 @@ def test_claude_skill_and_executable_are_present():
     assert "device_summary" in skill_text
     assert "image_summary" in skill_text
     assert "nonblank" in skill_text
+    assert "--quality-target 0.9" in skill_text
+    assert "multi-refinement" in skill_text
+    assert "claude-imagegen setup" in skill_text
     assert executable.exists()
     executable_text = executable.read_text(encoding="utf-8")
     assert "claude_imagegen.cli" in executable_text
     assert "CLAUDE_PLUGIN_DATA" in executable_text
     assert "python3 -m venv" in executable_text
     assert 'pip" install' in executable_text
+    assert "PIP_DISABLE_PIP_VERSION_CHECK=1" in executable_text
+    assert "--quiet" in executable_text
 
 
 def test_shell_entrypoint_is_forced_to_lf_on_checkout():
@@ -129,6 +137,9 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "image.png" in readme
     assert "metadata.json" in readme
     assert "quality-report.json" in readme
+    assert "claude-imagegen setup" in readme
+    assert "--quality-target 0.9" in readme
+    assert "multi-refinement" in readme
     assert "critique-request.json" in readme
     assert "comparison-request.json" in readme
     assert "verification-report.json" in readme

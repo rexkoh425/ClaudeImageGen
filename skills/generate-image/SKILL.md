@@ -39,6 +39,18 @@ VQAScore idea, run locally with no API. The canonical loop is:
    (image-to-image embedding cosine, 0-1) to confirm the edit stayed continuous with the parent
    while moving toward the target. Repeat until `verdict` is `accept` and closeness is high.
 
+## High-quality multi-refinement mode
+
+When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. The local CPU renderer must not mark its own homework: run with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
+
+For these runs, set `"style"` with `"detail"` and `"sharpen"` in addition to color grade controls, and make the scene plan visibly dense: use foreground/midground/background separation, materials, textures, shadows, veils, reflections, and small motif detail. Prefer 2-4 refinement rounds with `--save-candidates 4`; do not keep increasing local iterations if Claude vision says the composition is wrong.
+
+First-time setup can be checked with:
+
+```bash
+claude-imagegen setup
+```
+
 `critique.json` schema (all fields optional except `closeness_score`):
 
 ```json
@@ -157,6 +169,7 @@ claude-imagegen generate \
   --height 480 \
   --max-iterations 32 \
   --threshold 0.58 \
+  --quality-target 0.9 \
   --similarity-backend local \
   --save-candidates 4
 ```
@@ -189,7 +202,7 @@ If saved candidates exist, prefer `--candidate-rank auto` so the refine command 
 19. Use `"clouds"` for compact cloud banks, haze puffs, and soft sky massing. Supported fields are normalized `region`, `color`, optional `shadow`, `opacity`, `blur`, `count`, `lobes`, `scale`, `blend`, `seed`, and `z`. Prefer clouds over many hand-written ellipse elements when the prompt calls for sky texture.
 20. Use `"shadows"` for cast shadows, contact shadows, and grounding. Supported shadow types are `ellipse`, `rectangle`, and `polygon`. Ellipse and rectangle shadows use normalized `x`, `y`, `width`, and `height`; polygon shadows use normalized `points`. All shadows support `color`, `opacity`, `blur`, `blend`, and `z`. Prefer soft `multiply` shadows to make objects feel grounded without adding local semantic inference.
 21. Use `"focus"` for depth-of-field or selective softness after the scene is composed. Supported fields are normalized `region`, `blur`, `falloff`, and `mode` of `outside` or `inside`. Prefer `mode: "outside"` to keep the main subject sharp while softly blurring background or edge clutter.
-22. Use `"style"` for final Claude-authored image finishing. Supported fields are `grain`, `vignette`, `saturation`, `contrast`, `warmth`, `bloom`, and `antialias`, each from `0.0` to `1.0`. Use `antialias` when Claude-authored polygons, terrain, silhouettes, or hard geometric edges need a smoother final raster without increasing the saved output size. Use the other fields sparingly for cinematic color, soft highlights, and final polish after composition is already clear.
+22. Use `"style"` for final Claude-authored image finishing. Supported fields are `grain`, `vignette`, `saturation`, `contrast`, `warmth`, `bloom`, `antialias`, `"detail"`, and `"sharpen"`, each from `0.0` to `1.0`. Use `antialias` when Claude-authored polygons, terrain, silhouettes, or hard geometric edges need a smoother final raster without increasing the saved output size. Use `"detail"` and `"sharpen"` for CPU-side final edge/detail enhancement after the composition is already clear; do not use them as a substitute for real scene-plan detail.
 23. Use default `--similarity-backend local` for fast deterministic scoring. If the user explicitly asks for stronger local model scoring and local `torch`/`transformers` weights are available, prefer `--similarity-backend transformers-siglip --similarity-model google/siglip-base-patch16-224 --similarity-device auto` for single prompt/image scoring loops, or use `--similarity-backend transformers-clip --similarity-model openai/clip-vit-base-patch32 --similarity-device auto` for the baseline CLIPScore-style check. Both can use CUDA for prompt-image scoring when PyTorch reports it is available.
 24. Use `--continuity-backend transformers-dinov2 --continuity-model facebook/dinov2-base --continuity-device auto` on refine or initial-image runs when the user asks for stronger image-to-image continuity. This keeps text alignment and parent-image preservation separate: SigLIP or CLIP can score the prompt while DINOv2 scores whether the new image stayed semantically close to the parent. DINOv2 adds `initial_similarity_details.dinov2_image_cosine_score`; SigLIP adds `siglip_image_cosine_score`; CLIP adds `clip_image_cosine_score`.
 25. Leave default `--caption-backend local` enabled so `metadata.json` records `image_caption`, `caption_similarity_score`, `caption_similarity_backend`, `lexical_caption_similarity_score`, `semantic_caption_similarity_score`, `caption_missing_objects`, `caption_missing_colors`, `caption_unexpected_objects`, and `caption_unexpected_colors`. If the user explicitly asks for stronger image-to-text checking and local `torch`/`transformers` weights are available, use `--caption-backend transformers-blip --caption-model Salesforce/blip-image-captioning-base --caption-device auto`. This can use CUDA for captioning when PyTorch reports it is available. For stronger NLP comparison between the prompt and the generated caption, add `--caption-similarity-backend transformers-sentence --caption-similarity-model sentence-transformers/all-MiniLM-L6-v2 --caption-similarity-device auto`.

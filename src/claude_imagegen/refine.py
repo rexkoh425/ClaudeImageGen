@@ -34,6 +34,7 @@ class RefineOptions:
     candidate_rank: int | str | None = None
     max_iterations: int = 32
     threshold: float = 0.58
+    quality_target: float | None = None
     seed: int = 0
     pixel_csv: bool = False
     save_candidates: int = 0
@@ -80,6 +81,7 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             height=height,
             max_iterations=options.max_iterations,
             threshold=options.threshold,
+            quality_target=options.quality_target,
             seed=options.seed,
             pixel_csv=options.pixel_csv,
             save_candidates=options.save_candidates,

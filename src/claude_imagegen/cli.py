@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
+import platform
 import sys
 
 from .generator import GenerateOptions, generate_image
@@ -29,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--height", type=int, default=480)
     generate.add_argument("--max-iterations", type=int, default=32)
     generate.add_argument("--threshold", type=float, default=0.58)
+    generate.add_argument(
+        "--quality-target",
+        type=float,
+        help="Optional high-quality acceptance target; 0.9 requires independent Claude visual critique plus local detail evidence.",
+    )
     generate.add_argument("--seed", type=int, default=0)
     generate.add_argument("--pixel-csv", action="store_true", help="Also write pixels.csv with x,y,r,g,b rows.")
     generate.add_argument(
@@ -128,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
     refine.add_argument("--candidate-rank", help="Use a ranked candidate number, or 'auto', from the parent output candidates.json as the initial image.")
     refine.add_argument("--max-iterations", type=int, default=32)
     refine.add_argument("--threshold", type=float, default=0.58)
+    refine.add_argument(
+        "--quality-target",
+        type=float,
+        help="Optional high-quality acceptance target; 0.9 requires independent Claude visual critique plus local detail evidence.",
+    )
     refine.add_argument("--seed", type=int, default=0)
     refine.add_argument("--pixel-csv", action="store_true", help="Also write pixels.csv with x,y,r,g,b rows.")
     refine.add_argument(
@@ -264,6 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Prompt/caption text similarity scorer for strong-model cases.",
     )
     verify.add_argument("--caption-similarity-model", help="Optional semantic prompt/caption similarity model id/path.")
+
+    subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
     return parser
 
 
@@ -283,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
                 height=args.height,
                 max_iterations=args.max_iterations,
                 threshold=args.threshold,
+                quality_target=args.quality_target,
                 seed=args.seed,
                 pixel_csv=args.pixel_csv,
                 save_candidates=args.save_candidates,
@@ -328,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
                 candidate_rank=args.candidate_rank,
                 max_iterations=args.max_iterations,
                 threshold=args.threshold,
+                quality_target=args.quality_target,
                 seed=args.seed,
                 pixel_csv=args.pixel_csv,
                 save_candidates=args.save_candidates,
@@ -433,6 +449,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Case {case['type']} {case['status']} {case['size']} {case.get('quality_status', 'none')} {case['output_dir']}")
         return 0 if report["status"] == "pass" else 1
 
+    if args.command == "setup":
+        status = _setup_status()
+        print("claude-imagegen setup ok" if status["ready"] else "claude-imagegen setup incomplete")
+        print(f"Python {status['python_version']} ({status['python_executable']})")
+        for dependency in status["dependencies"]:
+            state = "ok" if dependency["available"] else "missing"
+            print(f"{dependency['name']} {state}")
+        print("First run bootstrap creates a plugin-owned virtual environment when numpy or Pillow are missing.")
+        return 0 if status["ready"] else 1
+
     parser.error(f"Unknown command: {args.command}")
     return 2
 
@@ -442,6 +468,26 @@ def _parse_cli_size(value: str) -> tuple[int, int]:
         return parse_size(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _setup_status() -> dict[str, object]:
+    dependencies = [
+        {"name": "numpy", "module": "numpy"},
+        {"name": "Pillow", "module": "PIL"},
+    ]
+    statuses = [
+        {
+            "name": dependency["name"],
+            "available": importlib.util.find_spec(str(dependency["module"])) is not None,
+        }
+        for dependency in dependencies
+    ]
+    return {
+        "ready": all(bool(dependency["available"]) for dependency in statuses),
+        "python_executable": sys.executable,
+        "python_version": platform.python_version(),
+        "dependencies": statuses,
+    }
 
 
 if __name__ == "__main__":

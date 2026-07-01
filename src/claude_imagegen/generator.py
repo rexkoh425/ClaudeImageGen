@@ -14,7 +14,7 @@ from .critique import write_critique_request
 from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
 from .prompt import parse_prompt
-from .quality import apply_quality_report
+from .quality import apply_quality_report, image_detail_metrics
 from .render import cap_dimensions, render_candidate, render_scene_plan
 from .scene import SceneCandidate, build_initial_candidate, mutate_candidate
 from .scene_plan import PlannedCloud, PlannedObject, ScenePlan, parse_scene_plan
@@ -31,6 +31,7 @@ class GenerateOptions:
     height: int = 480
     max_iterations: int = 32
     threshold: float = 0.58
+    quality_target: float | None = None
     seed: int = 0
     pixel_csv: bool = False
     scene_plan: Path | None = None
@@ -211,6 +212,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         if options.initial_image
         else None
     )
+    detail_metrics = image_detail_metrics(best_image)
 
     metadata: dict[str, object] = {
         "prompt": options.prompt,
@@ -220,12 +222,15 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "iterations": best_iteration,
         "max_iterations": options.max_iterations,
         "threshold": options.threshold,
+        "quality_target": options.quality_target,
         "met_threshold": best_score.total_score >= options.threshold,
         "total_score": round(best_score.total_score, 6),
         "text_score": round(best_score.text_score, 6),
         "reference_score": round(best_score.reference_score, 6),
         "initial_similarity_score": initial_similarity["continuity_score"] if initial_similarity else None,
         "initial_similarity_details": initial_similarity,
+        "image_detail_score": detail_metrics["detail_score"],
+        "image_detail_metrics": detail_metrics,
         "score_details": {key: round(value, 6) for key, value in best_score.details.items()},
         "auto_refine": options.auto_refine,
         "refinement_rounds": refinement_rounds,

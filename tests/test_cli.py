@@ -22,6 +22,8 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "red sun over blue ocean",
             "--output-dir",
             "out",
+            "--quality-target",
+            "0.9",
             "--similarity-backend",
             "transformers-siglip",
             "--similarity-model",
@@ -41,6 +43,7 @@ def test_cli_accepts_siglip_similarity_backend_options():
         ]
     )
     assert generate_args.similarity_backend == "transformers-siglip"
+    assert generate_args.quality_target == 0.9
     assert generate_args.similarity_model == "google/siglip-base-patch16-224"
     assert generate_args.continuity_backend == "transformers-dinov2"
     assert generate_args.continuity_model == "facebook/dinov2-base"
@@ -58,6 +61,8 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "add clouds",
             "--output-dir",
             "refined",
+            "--quality-target",
+            "0.9",
             "--similarity-backend",
             "transformers-siglip",
             "--continuity-backend",
@@ -67,6 +72,7 @@ def test_cli_accepts_siglip_similarity_backend_options():
         ]
     )
     assert refine_args.similarity_backend == "transformers-siglip"
+    assert refine_args.quality_target == 0.9
     assert refine_args.continuity_backend == "transformers-dinov2"
     assert refine_args.caption_similarity_backend == "transformers-sentence"
 
@@ -115,6 +121,9 @@ def test_cli_accepts_siglip_similarity_backend_options():
     assert verify_args.caption_similarity_model == "sentence-transformers/all-MiniLM-L6-v2"
     assert verify_args.strong_sizes == [(96, 64), (144, 96)]
 
+    setup_args = parser.parse_args(["setup"])
+    assert setup_args.command == "setup"
+
 
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):
     output_dir = tmp_path / "generated"
@@ -140,6 +149,8 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
             "6",
             "--threshold",
             "0.99",
+            "--quality-target",
+            "0.9",
             "--seed",
             "11",
             "--caption-backend",
@@ -200,10 +211,15 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert metadata["critique_request"] == str(critique_request_path)
     assert metadata["quality_status"] in {"pass", "review", "revise"}
     assert 0.0 <= metadata["quality_score"] <= 1.0
+    assert metadata["quality_target"] == 0.9
+    assert metadata["target_quality_met"] is False
+    assert 0.0 <= metadata["image_detail_score"] <= 1.0
+    assert metadata["image_detail_metrics"]["detail_score"] == metadata["image_detail_score"]
 
     quality_report = json.loads(quality_path.read_text(encoding="utf-8"))
     assert quality_report["status"] == metadata["quality_status"]
     assert quality_report["quality_score"] == metadata["quality_score"]
+    assert quality_report["target_quality_met"] == metadata["target_quality_met"]
     assert quality_report["recommended_candidate_aesthetic_score"] == metadata["recommended_candidate_aesthetic_score"]
 
     critique_request = json.loads(critique_request_path.read_text(encoding="utf-8"))

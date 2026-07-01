@@ -3,6 +3,37 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
+
+def image_detail_metrics(image: Image.Image) -> dict[str, float]:
+    gray = np.asarray(image.convert("L"), dtype=np.float32)
+    if gray.size == 0:
+        return {
+            "detail_score": 0.0,
+            "edge_density": 0.0,
+            "edge_strength": 0.0,
+            "luminance_std": 0.0,
+        }
+
+    dx = np.abs(np.diff(gray, axis=1))
+    dy = np.abs(np.diff(gray, axis=0))
+    edge_strength = float((dx.mean() + dy.mean()) / 2.0) if dx.size and dy.size else 0.0
+    edge_density = float(((dx > 18.0).mean() + (dy > 18.0).mean()) / 2.0) if dx.size and dy.size else 0.0
+    luminance_std = float(gray.std())
+
+    contrast_score = min(1.0, luminance_std / 64.0)
+    edge_strength_score = min(1.0, edge_strength / 22.0)
+    edge_density_score = min(1.0, edge_density / 0.16)
+    detail_score = max(0.0, min(1.0, 0.38 * contrast_score + 0.34 * edge_strength_score + 0.28 * edge_density_score))
+
+    return {
+        "detail_score": round(detail_score, 6),
+        "edge_density": round(edge_density, 6),
+        "edge_strength": round(edge_strength, 6),
+        "luminance_std": round(luminance_std, 6),
+    }
 
 def apply_quality_report(output_dir: Path, metadata: dict[str, object]) -> Path:
     report = build_quality_report(metadata)
@@ -11,6 +42,7 @@ def apply_quality_report(output_dir: Path, metadata: dict[str, object]) -> Path:
     metadata["quality_report"] = str(report_path)
     metadata["quality_status"] = report["status"]
     metadata["quality_score"] = report["quality_score"]
+    metadata["target_quality_met"] = report["target_quality_met"]
     if report.get("refinement_delta") is not None:
         metadata["refinement_delta"] = report["refinement_delta"]
     if report.get("refinement_guidance") is not None:
@@ -23,6 +55,7 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
     checks = _quality_checks(metadata)
     quality_score = _weighted_quality_score(checks)
     status = _quality_status(checks, quality_score)
+    target_quality_met = _target_quality_met(metadata, checks, quality_score)
     continuity_score = _float_or_none(metadata.get("initial_similarity_score"))
     continuity_details = metadata.get("initial_similarity_details")
     weakest_region = _weakest_continuity_region(continuity_details)
@@ -34,6 +67,8 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
     return {
         "status": status,
         "quality_score": quality_score,
+        "quality_target": _float_or_none(metadata.get("quality_target")),
+        "target_quality_met": target_quality_met,
         "summary": _summary(status, quality_score, checks),
         "checks": checks,
         "next_actions": next_actions,
@@ -76,6 +111,19 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
             detail="Output dimensions are valid and within the renderer cap.",
         ),
     ]
+
+    detail_score = _float_or_none(metadata.get("image_detail_score"))
+    if detail_score is not None:
+        checks.append(
+            _check(
+                name="image_detail",
+                score=detail_score,
+                pass_threshold=0.72,
+                review_threshold=0.45,
+                weight=0.12,
+                detail="CPU detail score from luminance variation, edge density, and edge strength; flat or low-detail images cannot pass high quality targets.",
+            )
+        )
 
     critique = metadata.get("visual_critique")
     if isinstance(critique, dict) and "closeness_score" in critique:
@@ -167,6 +215,10 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
             )
         )
 
+    independent_gate = _independent_quality_gate(metadata)
+    if independent_gate is not None:
+        checks.append(independent_gate)
+
     caption_missing_objects = _string_list(metadata.get("caption_missing_objects"))
     caption_missing_colors = _string_list(metadata.get("caption_missing_colors"))
     if caption_missing_objects or caption_missing_colors:
@@ -185,6 +237,48 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
         )
 
     return checks
+
+
+def _independent_quality_gate(metadata: dict[str, object]) -> dict[str, object] | None:
+    target = _float_or_none(metadata.get("quality_target"))
+    if target is None or target < 0.9:
+        return None
+
+    local_score = _float(metadata.get("total_score"), 0.0)
+    detail_score = _float(metadata.get("image_detail_score"), 0.0)
+    visual_score = _visual_closeness_score(metadata)
+    visual_for_score = visual_score if visual_score is not None else 0.0
+    score = max(0.0, min(1.0, 0.35 * local_score + 0.45 * visual_for_score + 0.20 * detail_score))
+    check = _check(
+        name="independent_quality_gate",
+        score=score,
+        pass_threshold=target,
+        review_threshold=max(0.0, target - 0.12),
+        weight=0.18,
+        detail=(
+            "High quality target gate that requires local prompt score, independent Claude visual judgement, "
+            "and CPU detail evidence so the renderer cannot pass by optimizing only its own scorer."
+        ),
+    )
+    local_floor = max(0.85, target - 0.05)
+    detail_floor = 0.78
+    if local_score < local_floor or detail_score < detail_floor or visual_score is None or visual_score < target:
+        check["status"] = "revise"
+    check["target"] = round(target, 6)
+    check["local_score"] = round(local_score, 6)
+    check["local_floor"] = round(local_floor, 6)
+    check["detail_score"] = round(detail_score, 6)
+    check["detail_floor"] = round(detail_floor, 6)
+    check["visual_closeness_score"] = round(visual_score, 6) if visual_score is not None else None
+    check["visual_floor"] = round(target, 6)
+    return check
+
+
+def _visual_closeness_score(metadata: dict[str, object]) -> float | None:
+    critique = metadata.get("visual_critique")
+    if not isinstance(critique, dict):
+        return None
+    return _float_or_none(critique.get("closeness_score"))
 
 
 def _check(
@@ -221,6 +315,16 @@ def _quality_status(checks: list[dict[str, object]], quality_score: float) -> st
     if "review" in statuses or quality_score < 0.72:
         return "review"
     return "pass"
+
+
+def _target_quality_met(metadata: dict[str, object], checks: list[dict[str, object]], quality_score: float) -> bool:
+    target = _float_or_none(metadata.get("quality_target"))
+    if target is None:
+        return False
+    independent_gate = next((check for check in checks if check.get("name") == "independent_quality_gate"), None)
+    if independent_gate is not None:
+        return independent_gate.get("status") == "pass"
+    return quality_score >= target
 
 
 def _weighted_quality_score(checks: list[dict[str, object]]) -> float:
@@ -280,6 +384,14 @@ def _next_actions(
             actions.append(f"Inspect the {weakest_region.replace('_', ' ')} region; it has the weakest parent-child continuity score ({weakest_score:.3f}).")
     if "candidate_recommendation" in failed and metadata.get("candidate_index"):
         actions.append("Inspect candidates/contact-sheet.png before choosing the next refinement parent.")
+    if "independent_quality_gate" in failed:
+        target = _float(metadata.get("quality_target"), 0.9)
+        if _visual_closeness_score(metadata) is None:
+            actions.append(f"Claude visual critique is required before accepting a {target:.3f} quality target.")
+        if _float(metadata.get("image_detail_score"), 0.0) < 0.78:
+            actions.append("Add more visible local detail: textures, materials, foreground marks, lighting edges, or sharpen/detail style controls.")
+        if _float(metadata.get("total_score"), 0.0) < max(0.85, target - 0.05):
+            actions.append("Raise local prompt alignment before accepting the high quality target.")
 
     if refinement_guidance is not None:
         for action in _refinement_guidance_actions(refinement_guidance):

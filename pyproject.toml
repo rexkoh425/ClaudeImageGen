@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-imagegen"
-version = "0.1.0"
+version = "0.1.1"
 description = "CPU-first Claude Code image generation plugin prototype with optional model-backed checks"
 readme = "README.md"
 requires-python = ">=3.10"

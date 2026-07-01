@@ -1,7 +1,7 @@
 {
   "name": "claude-imagegen",
   "displayName": "Claude ImageGen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Image generation plugin prototype for Claude Code using a CPU-first iterative renderer with optional model-backed checks.",
   "author": {
     "name": "ClaudeImageGen"

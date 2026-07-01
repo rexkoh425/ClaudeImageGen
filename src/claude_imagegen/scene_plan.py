@@ -665,6 +665,8 @@ def parse_scene_plan(path: Path) -> ScenePlan:
         "warmth": _unit_float(style_data.get("warmth", 0.0), default=0.0),
         "bloom": _unit_float(style_data.get("bloom", 0.0), default=0.0),
         "antialias": _unit_float(style_data.get("antialias", 0.0), default=0.0),
+        "detail": _unit_float(style_data.get("detail", 0.0), default=0.0),
+        "sharpen": _unit_float(style_data.get("sharpen", 0.0), default=0.0),
     }
 
     return ScenePlan(
