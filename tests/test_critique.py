@@ -182,6 +182,12 @@ def test_write_comparison_request_records_parent_child_judge_payload(tmp_path) -
         "total_score": 0.62,
         "quality_score": 0.68,
         "initial_similarity_score": 0.91,
+        "initial_similarity_details": {
+            "continuity_score": 0.91,
+            "weakest_continuity_region": "top_left",
+            "weakest_continuity_region_score": 0.72,
+            "region_similarity_scores": {"top_left": 0.72, "middle_center": 0.94},
+        },
         "refinement_delta": {
             "parent_total_score": 0.58,
             "current_total_score": 0.62,
@@ -209,6 +215,8 @@ def test_write_comparison_request_records_parent_child_judge_payload(tmp_path) -
     assert request["parent_prompt"] == "red sun over blue ocean"
     assert request["refinement_delta"]["total_score_delta"] == 0.04
     assert request["initial_similarity_score"] == 0.91
+    assert request["initial_similarity_details"]["weakest_continuity_region"] == "top_left"
+    assert request["initial_similarity_details"]["region_similarity_scores"]["middle_center"] == 0.94
     assert request["expected_response"]["alignment_score"] is None
     assert request["expected_response"]["continuity_score"] is None
     assert request["expected_response"]["better_image"] == "child"

@@ -100,6 +100,24 @@ def test_reference_and_initial_palettes_are_written_to_metadata(tmp_path: Path):
     assert 0.0 <= initial_details["multiscale_luminance_ssim_score"] <= 1.0
     assert 0.0 <= initial_details["edge_cosine_score"] <= 1.0
     assert 0.0 <= initial_details["color_histogram_score"] <= 1.0
+    region_scores = initial_details["region_similarity_scores"]
+    assert set(region_scores) == {
+        "top_left",
+        "top_center",
+        "top_right",
+        "middle_left",
+        "middle_center",
+        "middle_right",
+        "bottom_left",
+        "bottom_center",
+        "bottom_right",
+    }
+    assert all(0.0 <= score <= 1.0 for score in region_scores.values())
+    assert initial_details["weakest_continuity_region"] in region_scores
+    assert initial_details["weakest_continuity_region_score"] == min(region_scores.values())
+    report = json.loads((tmp_path / "out" / "quality-report.json").read_text(encoding="utf-8"))
+    assert report["weakest_continuity_region"] == initial_details["weakest_continuity_region"]
+    assert report["weakest_continuity_region_score"] == initial_details["weakest_continuity_region_score"]
 
 
 def test_image_similarity_details_reward_identical_images_over_different_image(tmp_path: Path):
@@ -121,6 +139,8 @@ def test_image_similarity_details_reward_identical_images_over_different_image(t
     assert identical_details["luminance_ssim_score"] > different_details["luminance_ssim_score"]
     assert identical_details["multiscale_luminance_ssim_score"] > different_details["multiscale_luminance_ssim_score"]
     assert identical_details["multiscale_luminance_ssim_score"] >= 0.99
+    assert identical_details["regional_continuity_score"] > different_details["regional_continuity_score"]
+    assert identical_details["weakest_continuity_region_score"] > different_details["weakest_continuity_region_score"]
     assert identical_details["edge_cosine_score"] > different_details["edge_cosine_score"]
     assert identical_details["color_histogram_score"] > different_details["color_histogram_score"]
     assert identical_details["continuity_score"] >= 0.99

@@ -23,6 +23,9 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
     status = _quality_status(checks, quality_score)
     next_actions = _next_actions(metadata, checks, status)
     continuity_score = _float_or_none(metadata.get("initial_similarity_score"))
+    continuity_details = metadata.get("initial_similarity_details")
+    weakest_region = _weakest_continuity_region(continuity_details)
+    weakest_region_score = _weakest_continuity_region_score(continuity_details)
     refinement_delta = _refinement_delta(metadata, quality_score=quality_score)
 
     return {
@@ -32,6 +35,8 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
         "checks": checks,
         "next_actions": next_actions,
         "continuity_score": continuity_score if continuity_score is not None else None,
+        "weakest_continuity_region": weakest_region,
+        "weakest_continuity_region_score": weakest_region_score,
         "refinement_delta": refinement_delta,
         "recommended_candidate_rank": metadata.get("recommended_candidate_rank"),
         "recommended_candidate_score": metadata.get("recommended_candidate_score"),
@@ -210,6 +215,10 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
         actions.append("Revise the scene plan before rerunning; prompt alignment is below the requested threshold.")
     if "continuity" in failed:
         actions.append("Preserve more parent layout, palette, and silhouettes before applying new prompt changes.")
+        weakest_region = _weakest_continuity_region(metadata.get("initial_similarity_details"))
+        weakest_score = _weakest_continuity_region_score(metadata.get("initial_similarity_details"))
+        if weakest_region and weakest_score is not None:
+            actions.append(f"Inspect the {weakest_region.replace('_', ' ')} region; it has the weakest parent-child continuity score ({weakest_score:.3f}).")
     if "candidate_recommendation" in failed and metadata.get("candidate_index"):
         actions.append("Inspect candidates/contact-sheet.png before choosing the next refinement parent.")
 
@@ -278,6 +287,41 @@ def _delta(current: object, parent: object) -> float | None:
 
 def _rounded_or_none(value: float | None) -> float | None:
     return round(value, 6) if value is not None else None
+
+
+def _weakest_continuity_region(details: object) -> str | None:
+    if not isinstance(details, dict):
+        return None
+    raw_region = details.get("weakest_continuity_region")
+    if isinstance(raw_region, str) and raw_region:
+        return raw_region
+    region_scores = details.get("region_similarity_scores")
+    if not isinstance(region_scores, dict) or not region_scores:
+        return None
+    parsed_scores = {
+        str(region): score
+        for region, score in ((key, _float_or_none(value)) for key, value in region_scores.items())
+        if score is not None
+    }
+    if not parsed_scores:
+        return None
+    return min(parsed_scores.items(), key=lambda item: item[1])[0]
+
+
+def _weakest_continuity_region_score(details: object) -> float | None:
+    if not isinstance(details, dict):
+        return None
+    raw_score = _float_or_none(details.get("weakest_continuity_region_score"))
+    if raw_score is not None:
+        return round(raw_score, 6)
+    region_scores = details.get("region_similarity_scores")
+    if not isinstance(region_scores, dict) or not region_scores:
+        return None
+    parsed_scores = [_float_or_none(value) for value in region_scores.values()]
+    parsed_scores = [score for score in parsed_scores if score is not None]
+    if not parsed_scores:
+        return None
+    return round(min(parsed_scores), 6)
 
 
 def _size_score(metadata: dict[str, object]) -> float:

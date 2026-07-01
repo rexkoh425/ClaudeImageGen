@@ -59,14 +59,14 @@ Good future similarity/refinement signals should be layered rather than singular
 
 1. CLIP/SigLIP-style prompt-image embedding cosine for broad semantic alignment.
 2. Reference-image embedding cosine plus palette/layout comparisons for image-to-image refinement.
-3. Structural continuity signals such as single-scale and multi-scale luminance SSIM, edge cosine, pixel cosine, and color-histogram overlap so edits can preserve layout instead of chasing only text alignment.
+3. Structural continuity signals such as single-scale and multi-scale luminance SSIM, edge cosine, pixel cosine, color-histogram overlap, and a 3x3 region-similarity grid so edits can preserve layout instead of chasing only text alignment.
 4. Caption-backchecking with local heuristics or a BLIP-style image captioner, then lexical or sentence-embedding prompt/caption comparison so Claude can compare what the generated image appears to contain against the requested prompt.
 5. Preference/aesthetic reward such as ImageReward for choosing among multiple aligned candidates.
 6. Hard local checks for resolution, aspect ratio, nonblankness, contrast, and requested object/color evidence.
 
 The current `--save-candidates N` option supports a simple version of candidate ranking. It saves the top N scored images, a `candidates.json` index, and a visual `contact-sheet.png` so Claude Code can inspect alternatives when scores are close or when the numeric best candidate is not the best visual continuation. Each candidate index entry carries its own caption similarity, caption missing/unexpected evidence, `selection_score`, and `selection_reasons`, making selection less dependent on the final image's score alone. The `refine --candidate-rank auto` path closes this loop by letting Claude Code use the recommended candidate PNG as the next initial image while preserving parent candidate lineage in metadata; `refine --candidate-rank N` remains available when visual inspection should override the automatic recommendation.
 
-For iterative editing, prompt alignment is not enough. Each refinement run should also measure continuity against the previous image. The current `refine` command records `initial_similarity_score` plus `initial_similarity_details` between the new output and the selected parent image. The local detail fields include image cosine, luminance SSIM, edge cosine, color-histogram overlap, local continuity, and final continuity. When `transformers-clip` is active, `clip_image_cosine_score` is added and blended into the final continuity score. Together with lineage metadata (`refined_from`, `parent_image`, `parent_metadata`, `parent_candidate_selection`, `refinement_lineage_depth`), this gives Claude Code two independent signals: whether the image still resembles the previous iteration, and whether it moved closer to the revised text/reference target.
+For iterative editing, prompt alignment is not enough. Each refinement run should also measure continuity against the previous image. The current `refine` command records `initial_similarity_score` plus `initial_similarity_details` between the new output and the selected parent image. The local detail fields include image cosine, luminance SSIM, multi-scale luminance SSIM, edge cosine, color-histogram overlap, a 3x3 `region_similarity_scores` grid, `weakest_continuity_region`, local continuity, and final continuity. When `transformers-clip` is active, `clip_image_cosine_score` is added and blended into the final continuity score. Together with lineage metadata (`refined_from`, `parent_image`, `parent_metadata`, `parent_candidate_selection`, `refinement_lineage_depth`), this gives Claude Code two independent signals: whether the image still resembles the previous iteration, and whether it moved closer to the revised text/reference target.
 
 `quality-report.json` aggregates those signals into an explicit `status`, `quality_score`, individual checks, and `next_actions`. It is intentionally not a hidden oracle: every check is backed by metadata fields such as prompt score, caption score, continuity score, reference score, and candidate recommendation score. This makes it useful as the first inspection point for Claude Code while preserving traceability for manual diagnosis.
 
@@ -168,16 +168,20 @@ a neural network:
 These are concatenated and L2-normalized into one vector; image-to-image closeness is the cosine of
 two such vectors, remapped to 0-1. This is intentionally not CLIP/DINOv2 quality, but it is
 deterministic, auditable, fast, and — critically — always available, giving the refinement loop a
-stable quantitative closeness number to optimize. When `torch` + weights are present, the optional
-CLIP, SigLIP, or DINOv2 image-embedding cosine is blended in for a stronger continuity signal.
+stable quantitative closeness number to optimize. The parent-child path also records
+`region_similarity_scores`, `regional_continuity_score`, `weakest_continuity_region`, and
+`weakest_continuity_region_score` so Claude Code can focus comparison on the local area that drifted
+most. When `torch` + weights are present, the optional CLIP, SigLIP, or DINOv2 image-embedding
+cosine is blended in for a stronger continuity signal.
 
 ### How the layered signals combine in the loop
 
 The refinement loop is meant to use independent signals rather than a single oracle, mirroring the
 survey above: VQAScore-style alignment (Claude vision judge), text-embedding cosine (local feature
 vector or optional CLIP), caption backcheck (TIT-Score-style), structural continuity
-(`luminance_ssim_score`, `multiscale_luminance_ssim_score`, edge cosine, color histograms), and
-image-embedding cosine for continuity (local layered embedding or optional CLIP/DINOv2). The
+(`luminance_ssim_score`, `multiscale_luminance_ssim_score`, edge cosine, color histograms, and
+`weakest_continuity_region` from the 3x3 grid), and image-embedding cosine for continuity (local
+layered embedding or optional CLIP/DINOv2). The
 `quality-report.json` aggregates these into a status and `next_actions`, but every number remains
 traceable to its source signal.
 

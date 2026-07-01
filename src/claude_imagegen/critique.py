@@ -180,6 +180,7 @@ def build_comparison_request(
         "total_score": metadata.get("total_score"),
         "quality_score": metadata.get("quality_score"),
         "initial_similarity_score": metadata.get("initial_similarity_score"),
+        "initial_similarity_details": metadata.get("initial_similarity_details"),
         "refinement_delta": metadata.get("refinement_delta"),
         "caption": metadata.get("image_caption"),
         "parent_caption": metadata.get("parent_caption"),

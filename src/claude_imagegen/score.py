@@ -31,6 +31,17 @@ DEFAULT_CLIP_MODEL = "openai/clip-vit-base-patch32"
 DEFAULT_SIGLIP_MODEL = "google/siglip-base-patch16-224"
 DEFAULT_DINOV2_MODEL = "facebook/dinov2-base"
 IMAGE_SIMILARITY_SIZE = (128, 128)
+REGION_GRID = (
+    ("top_left", 0, 1, 0, 1),
+    ("top_center", 0, 1, 1, 2),
+    ("top_right", 0, 1, 2, 3),
+    ("middle_left", 1, 2, 0, 1),
+    ("middle_center", 1, 2, 1, 2),
+    ("middle_right", 1, 2, 2, 3),
+    ("bottom_left", 2, 3, 0, 1),
+    ("bottom_center", 2, 3, 1, 2),
+    ("bottom_right", 2, 3, 2, 3),
+)
 
 
 @dataclass(frozen=True)
@@ -49,13 +60,15 @@ def image_similarity_score(
     similarity_model: str | None = None,
     similarity_device: str = "auto",
 ) -> float:
-    return image_similarity_details(
-        image,
-        comparison_image,
-        similarity_backend=similarity_backend,
-        similarity_model=similarity_model,
-        similarity_device=similarity_device,
-    )["continuity_score"]
+    return float(
+        image_similarity_details(
+            image,
+            comparison_image,
+            similarity_backend=similarity_backend,
+            similarity_model=similarity_model,
+            similarity_device=similarity_device,
+        )["continuity_score"]
+    )
 
 
 def image_similarity_details(
@@ -65,7 +78,7 @@ def image_similarity_details(
     similarity_backend: str = "local",
     similarity_model: str | None = None,
     similarity_device: str = "auto",
-) -> dict[str, float]:
+) -> dict[str, object]:
     image_rgb = image.convert("RGB")
     with Image.open(comparison_image) as comparison:
         comparison_rgb = comparison.convert("RGB")
@@ -83,13 +96,17 @@ def image_similarity_details(
         _edge_feature_vector(comparison_array),
     )
     color_histogram_score = _color_histogram_similarity(image_array, comparison_array)
+    region_similarity_scores = _region_similarity_scores(image_array, comparison_array)
+    regional_continuity_score = _clamp01(float(np.mean(list(region_similarity_scores.values()))))
+    weakest_region, weakest_region_score = min(region_similarity_scores.items(), key=lambda item: item[1])
     local_continuity_score = _clamp01(
-        (0.26 * embedding_cosine_score)
-        + (0.17 * luminance_ssim_score)
-        + (0.18 * multiscale_luminance_ssim_score)
-        + (0.18 * edge_cosine_score)
-        + (0.13 * color_histogram_score)
-        + (0.08 * image_cosine_score)
+        (0.24 * embedding_cosine_score)
+        + (0.15 * luminance_ssim_score)
+        + (0.16 * multiscale_luminance_ssim_score)
+        + (0.17 * edge_cosine_score)
+        + (0.12 * color_histogram_score)
+        + (0.06 * image_cosine_score)
+        + (0.10 * regional_continuity_score)
     )
 
     details = {
@@ -99,6 +116,10 @@ def image_similarity_details(
         "multiscale_luminance_ssim_score": round(multiscale_luminance_ssim_score, 6),
         "edge_cosine_score": round(edge_cosine_score, 6),
         "color_histogram_score": round(color_histogram_score, 6),
+        "regional_continuity_score": round(regional_continuity_score, 6),
+        "region_similarity_scores": {key: round(value, 6) for key, value in region_similarity_scores.items()},
+        "weakest_continuity_region": weakest_region,
+        "weakest_continuity_region_score": round(weakest_region_score, 6),
         "local_continuity_score": round(local_continuity_score, 6),
     }
 
@@ -590,6 +611,30 @@ def _color_histogram_similarity(left: np.ndarray, right: np.ndarray) -> float:
         right_normalized = right_hist.astype(np.float32) / right_total
         scores.append(float(np.minimum(left_normalized, right_normalized).sum()))
     return _clamp01(float(np.mean(scores)) if scores else 0.0)
+
+
+def _region_similarity_scores(left: np.ndarray, right: np.ndarray) -> dict[str, float]:
+    height, width = left.shape[:2]
+    scores: dict[str, float] = {}
+    for name, row_start, row_end, col_start, col_end in REGION_GRID:
+        y0 = (height * row_start) // 3
+        y1 = (height * row_end) // 3
+        x0 = (width * col_start) // 3
+        x1 = (width * col_end) // 3
+        left_region = left[y0:y1, x0:x1, :]
+        right_region = right[y0:y1, x0:x1, :]
+        scores[name] = _regional_similarity_score(left_region, right_region)
+    return scores
+
+
+def _regional_similarity_score(left: np.ndarray, right: np.ndarray) -> float:
+    if left.size == 0 or right.size == 0:
+        return 0.0
+    ssim_score = _luminance_ssim_score(left, right)
+    edge_score = _cosine_similarity(_edge_feature_vector(left), _edge_feature_vector(right))
+    color_score = _color_histogram_similarity(left, right)
+    pixel_score = _cosine_similarity(_normalized_pixel_vector(left), _normalized_pixel_vector(right))
+    return _clamp01((0.36 * ssim_score) + (0.26 * edge_score) + (0.24 * color_score) + (0.14 * pixel_score))
 
 
 def _resolve_torch_device(torch_module: object, device: str) -> str:
