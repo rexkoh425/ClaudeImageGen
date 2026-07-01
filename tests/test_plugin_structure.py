@@ -79,6 +79,7 @@ def test_claude_skill_and_executable_are_present():
     assert '"antialias"' in skill_text
     assert "revision_hints" in skill_text
     assert "critique-request.json" in skill_text
+    assert "comparison-request.json" in skill_text
     assert "refine --critique" in skill_text
     assert "refinement_delta" in skill_text
     assert "--strong-size" in skill_text
@@ -105,6 +106,7 @@ def test_readme_documents_claude_plugin_install_flow():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "critique-request.json" in readme
+    assert "comparison-request.json" in readme
     assert "refinement_delta" in readme
     assert "--strong-size" in readme
     assert "complex planned scene" in readme

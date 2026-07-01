@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from .candidates import annotate_candidate_selection, select_recommended_candidate
-from .critique import apply_critique_to_plan_dict, critique_signal, parse_critique, write_critique_request
+from .critique import apply_critique_to_plan_dict, critique_signal, parse_critique, write_comparison_request, write_critique_request
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .prompt import parse_prompt
 from .quality import apply_quality_report
@@ -120,6 +120,14 @@ def refine_image(options: RefineOptions) -> GenerateResult:
         options.output_dir,
         image_path=result.image_path,
         metadata_path=result.metadata_path,
+        metadata=result.metadata,
+    )
+    write_comparison_request(
+        options.output_dir,
+        parent_image=parent_image,
+        child_image=result.image_path,
+        metadata_path=result.metadata_path,
+        parent_metadata_path=parent_metadata_path if parent_metadata_path.exists() else None,
         metadata=result.metadata,
     )
     result.metadata_path.write_text(json.dumps(result.metadata, indent=2), encoding="utf-8")

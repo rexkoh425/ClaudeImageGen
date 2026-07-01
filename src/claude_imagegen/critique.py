@@ -82,6 +82,29 @@ def write_critique_request(
     return request_path
 
 
+def write_comparison_request(
+    output_dir: Path,
+    *,
+    parent_image: Path,
+    child_image: Path,
+    metadata_path: Path,
+    parent_metadata_path: Path | None,
+    metadata: dict[str, Any],
+) -> Path:
+    """Write the JSON request Claude Code should fill after comparing parent and child images."""
+    request_path = output_dir / "comparison-request.json"
+    request = build_comparison_request(
+        parent_image=parent_image,
+        child_image=child_image,
+        metadata_path=metadata_path,
+        parent_metadata_path=parent_metadata_path,
+        metadata=metadata,
+    )
+    request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
+    metadata["comparison_request"] = str(request_path)
+    return request_path
+
+
 def build_critique_request(
     *,
     image_path: Path,
@@ -123,6 +146,56 @@ def build_critique_request(
             "wrong": [],
             "extra": [],
             "edits": [],
+            "notes": "",
+        },
+    }
+
+
+def build_comparison_request(
+    *,
+    parent_image: Path,
+    child_image: Path,
+    metadata_path: Path,
+    parent_metadata_path: Path | None,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a stable Claude-vision request for judging a refinement against its parent."""
+    return {
+        "judge": "claude-vision-refinement-comparison",
+        "instructions": (
+            "Open parent_image and child_image side by side. Decide whether the child is a better "
+            "answer to the current prompt while preserving the important subject, layout, palette, "
+            "and identity from the parent. Write only JSON matching expected_response. Use "
+            "follow_up_edits only from allowed_edit_actions so refine --critique can apply them."
+        ),
+        "parent_image": str(parent_image),
+        "child_image": str(child_image),
+        "metadata": str(metadata_path),
+        "parent_metadata": str(parent_metadata_path) if parent_metadata_path else None,
+        "quality_report": _str_or_none(metadata.get("quality_report")),
+        "critique_request": _str_or_none(metadata.get("critique_request")),
+        "output_dir": str(metadata_path.parent),
+        "prompt": str(metadata.get("prompt") or ""),
+        "parent_prompt": str(metadata.get("parent_prompt") or ""),
+        "total_score": metadata.get("total_score"),
+        "quality_score": metadata.get("quality_score"),
+        "initial_similarity_score": metadata.get("initial_similarity_score"),
+        "refinement_delta": metadata.get("refinement_delta"),
+        "caption": metadata.get("image_caption"),
+        "parent_caption": metadata.get("parent_caption"),
+        "caption_similarity_score": metadata.get("caption_similarity_score"),
+        "parent_caption_similarity_score": metadata.get("parent_caption_similarity_score"),
+        "allowed_edit_actions": known_edit_actions(),
+        "expected_response": {
+            "alignment_score": None,
+            "continuity_score": None,
+            "improved": None,
+            "preserved_identity": None,
+            "better_image": "child",
+            "verdict": "accept",
+            "summary": "",
+            "regressions": [],
+            "follow_up_edits": [],
             "notes": "",
         },
     }

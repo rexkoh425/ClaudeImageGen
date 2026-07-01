@@ -347,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Caption {result.metadata['image_caption']}")
         if result.metadata.get("critique_request"):
             print(f"Critique request {result.metadata['critique_request']}")
+        if result.metadata.get("comparison_request"):
+            print(f"Comparison request {result.metadata['comparison_request']}")
         if result.metadata.get("parent_candidate_rank"):
             print(f"Candidate rank {result.metadata['parent_candidate_rank']}")
         if result.metadata.get("parent_candidate_selection"):

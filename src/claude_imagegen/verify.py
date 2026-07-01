@@ -311,6 +311,7 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "metadata": str(result.metadata_path),
         "quality_report": str(metadata.get("quality_report")),
         "critique_request": str(metadata.get("critique_request") or critique_request_path),
+        "comparison_request": metadata.get("comparison_request"),
         "quality_status": metadata.get("quality_status"),
         "quality_score": metadata.get("quality_score"),
         "total_score": metadata.get("total_score"),

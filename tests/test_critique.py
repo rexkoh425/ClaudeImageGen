@@ -6,9 +6,11 @@ import pytest
 
 from claude_imagegen.critique import (
     apply_critique_to_plan_dict,
+    build_comparison_request,
     critique_signal,
     known_edit_actions,
     parse_critique,
+    write_comparison_request,
     write_critique_request,
 )
 
@@ -163,6 +165,74 @@ def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None
     assert "add_cloud" in request["allowed_edit_actions"]
     assert "resize_object" in request["allowed_edit_actions"]
     assert known_edit_actions() == sorted(request["allowed_edit_actions"])
+
+
+def test_write_comparison_request_records_parent_child_judge_payload(tmp_path) -> None:
+    parent_image = tmp_path / "parent.png"
+    child_image = tmp_path / "image.png"
+    metadata_path = tmp_path / "metadata.json"
+    parent_metadata_path = tmp_path / "parent-metadata.json"
+    parent_image.write_bytes(b"parent")
+    child_image.write_bytes(b"child")
+    metadata = {
+        "prompt": "red sun over blue ocean with brighter clouds",
+        "parent_prompt": "red sun over blue ocean",
+        "quality_report": str(tmp_path / "quality-report.json"),
+        "critique_request": str(tmp_path / "critique-request.json"),
+        "total_score": 0.62,
+        "quality_score": 0.68,
+        "initial_similarity_score": 0.91,
+        "refinement_delta": {
+            "parent_total_score": 0.58,
+            "current_total_score": 0.62,
+            "total_score_delta": 0.04,
+            "continuity_score": 0.91,
+        },
+    }
+
+    request = build_comparison_request(
+        parent_image=parent_image,
+        child_image=child_image,
+        metadata_path=metadata_path,
+        parent_metadata_path=parent_metadata_path,
+        metadata=metadata,
+    )
+
+    assert request["judge"] == "claude-vision-refinement-comparison"
+    assert request["parent_image"] == str(parent_image)
+    assert request["child_image"] == str(child_image)
+    assert request["metadata"] == str(metadata_path)
+    assert request["parent_metadata"] == str(parent_metadata_path)
+    assert request["quality_report"] == str(tmp_path / "quality-report.json")
+    assert request["critique_request"] == str(tmp_path / "critique-request.json")
+    assert request["prompt"] == "red sun over blue ocean with brighter clouds"
+    assert request["parent_prompt"] == "red sun over blue ocean"
+    assert request["refinement_delta"]["total_score_delta"] == 0.04
+    assert request["initial_similarity_score"] == 0.91
+    assert request["expected_response"]["alignment_score"] is None
+    assert request["expected_response"]["continuity_score"] is None
+    assert request["expected_response"]["better_image"] == "child"
+    assert "follow_up_edits" in request["expected_response"]
+    assert "add_cloud" in request["allowed_edit_actions"]
+
+    request_path = write_comparison_request(
+        tmp_path,
+        parent_image=parent_image,
+        child_image=child_image,
+        metadata_path=metadata_path,
+        parent_metadata_path=parent_metadata_path,
+        metadata=metadata,
+    )
+    assert request_path == tmp_path / "comparison-request.json"
+    assert metadata["comparison_request"] == str(request_path)
+    persisted = json.loads(request_path.read_text(encoding="utf-8"))
+    assert persisted == build_comparison_request(
+        parent_image=parent_image,
+        child_image=child_image,
+        metadata_path=metadata_path,
+        parent_metadata_path=parent_metadata_path,
+        metadata=metadata,
+    )
 
 
 def test_missing_critique_file_raises() -> None:

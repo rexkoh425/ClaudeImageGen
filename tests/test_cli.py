@@ -341,6 +341,7 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
 
     assert "Refined" in completed.stdout
     assert "Critique request" in completed.stdout
+    assert "Comparison request" in completed.stdout
     assert "Refinement delta" in completed.stdout
     metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
     quality_report = json.loads((refined_dir / "quality-report.json").read_text(encoding="utf-8"))
@@ -354,10 +355,18 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     assert metadata["scene_plan_refine_actions"]
     assert metadata["quality_report"] == str(refined_dir / "quality-report.json")
     assert metadata["critique_request"] == str(refined_dir / "critique-request.json")
+    assert metadata["comparison_request"] == str(refined_dir / "comparison-request.json")
     critique_request = json.loads((refined_dir / "critique-request.json").read_text(encoding="utf-8"))
     assert critique_request["image"] == str(refined_dir / "image.png")
     assert critique_request["metadata"] == str(refined_dir / "metadata.json")
     assert critique_request["quality_report"] == str(refined_dir / "quality-report.json")
+    comparison_request = json.loads((refined_dir / "comparison-request.json").read_text(encoding="utf-8"))
+    assert comparison_request["parent_image"] == str(base_dir / "image.png")
+    assert comparison_request["child_image"] == str(refined_dir / "image.png")
+    assert comparison_request["metadata"] == str(refined_dir / "metadata.json")
+    assert comparison_request["parent_metadata"] == str(base_dir / "metadata.json")
+    assert comparison_request["refinement_delta"] == metadata["refinement_delta"]
+    assert comparison_request["expected_response"]["better_image"] == "child"
     assert "continuity" in {check["name"] for check in quality_report["checks"]}
     assert quality_report["continuity_score"] == metadata["initial_similarity_score"]
     assert quality_report["refinement_delta"] == metadata["refinement_delta"]
@@ -713,6 +722,9 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
             assert metadata["scene_plan_material_count"] >= 1
             assert metadata["scene_plan_focus_used"] is True
         if case["type"] == "refine":
+            assert (case_dir / "comparison-request.json").exists()
+            assert case["comparison_request"] == str(case_dir / "comparison-request.json")
+            assert metadata["comparison_request"] == str(case_dir / "comparison-request.json")
             assert metadata["parent_candidate_selection"] == "auto"
             assert metadata["initial_similarity_score"] is not None
             assert case["refinement_delta"] == metadata["refinement_delta"]
