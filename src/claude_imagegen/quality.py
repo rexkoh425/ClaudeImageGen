@@ -97,6 +97,35 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
             visual_check
         )
 
+    comparison = metadata.get("visual_comparison")
+    if isinstance(comparison, dict):
+        alignment_score = _float(comparison.get("alignment_score"), 0.0)
+        continuity_score = _float(comparison.get("continuity_score"), 0.0)
+        comparison_check = _check(
+            name="visual_comparison",
+            score=(alignment_score + continuity_score) / 2,
+            pass_threshold=0.72,
+            review_threshold=0.50,
+            weight=0.16,
+            detail="Claude-vision parent/child comparison of refinement alignment and continuity.",
+        )
+        comparison_check["alignment_score"] = round(alignment_score, 6)
+        comparison_check["continuity_score"] = round(continuity_score, 6)
+        comparison_check["better_image"] = str(comparison.get("better_image") or "")
+        comparison_check["improved"] = comparison.get("improved")
+        comparison_check["preserved_identity"] = comparison.get("preserved_identity")
+        regressions = _string_list(comparison.get("regressions"))
+        if regressions:
+            comparison_check["regressions"] = regressions
+        if (
+            str(comparison.get("verdict") or "").lower() == "revise"
+            or str(comparison.get("better_image") or "").lower() == "parent"
+            or comparison.get("improved") is False
+            or comparison.get("preserved_identity") is False
+        ):
+            comparison_check["status"] = "revise"
+        checks.append(comparison_check)
+
     initial_similarity = _float_or_none(metadata.get("initial_similarity_score"))
     if initial_similarity is not None:
         checks.append(
@@ -221,6 +250,14 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
         if critique_extra:
             actions.append(f"Judge: remove or downplay unrequested elements: {', '.join(critique_extra)}.")
         actions.extend(_element_check_actions(_element_checks(critique.get("element_checks"))))
+
+    comparison = metadata.get("visual_comparison")
+    if isinstance(comparison, dict):
+        regressions = _string_list(comparison.get("regressions"))
+        if regressions:
+            actions.append(f"Comparison: address regressions: {', '.join(regressions)}.")
+        if str(comparison.get("better_image") or "").lower() == "parent":
+            actions.append("Comparison: parent looked better; preserve more parent identity, layout, and palette.")
 
     failed = [str(check.get("name")) for check in checks if check.get("status") == "revise"]
     if "prompt_alignment" in failed:

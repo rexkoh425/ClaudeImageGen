@@ -61,6 +61,20 @@ class VisualCritique:
     notes: str
 
 
+@dataclass(frozen=True)
+class VisualComparison:
+    alignment_score: float
+    continuity_score: float
+    improved: bool | None
+    preserved_identity: bool | None
+    better_image: str
+    verdict: str
+    summary: str
+    regressions: tuple[str, ...]
+    follow_up_edits: tuple[dict[str, Any], ...]
+    notes: str
+
+
 def known_edit_actions() -> list[str]:
     """Return the supported structured edit actions for Claude-vision critiques."""
     return sorted(_KNOWN_ACTIONS)
@@ -234,6 +248,38 @@ def parse_critique(source: Path | str | dict[str, Any]) -> VisualCritique:
     )
 
 
+def parse_comparison(source: Path | str | dict[str, Any]) -> VisualComparison:
+    """Parse a Claude-authored parent/child refinement comparison."""
+    data = _load(source)
+    if not isinstance(data, dict):
+        raise ValueError("comparison must be a JSON object")
+
+    alignment = _clamp01(_to_float(data.get("alignment_score", data.get("score", 0.0)), 0.0))
+    continuity = _clamp01(_to_float(data.get("continuity_score"), 0.0))
+    improved = _bool_or_none(data.get("improved"))
+    preserved_identity = _bool_or_none(data.get("preserved_identity"))
+    better_image = str(data.get("better_image") or "child").strip().lower()
+    if better_image not in {"parent", "child"}:
+        better_image = "child"
+
+    verdict = str(data.get("verdict", "")).strip().lower()
+    if verdict not in {ACCEPT, REVISE}:
+        verdict = REVISE if better_image == "parent" or improved is False or preserved_identity is False else ACCEPT
+
+    return VisualComparison(
+        alignment_score=alignment,
+        continuity_score=continuity,
+        improved=improved,
+        preserved_identity=preserved_identity,
+        better_image=better_image,
+        verdict=verdict,
+        summary=str(data.get("summary", "")).strip(),
+        regressions=_str_tuple(data.get("regressions")),
+        follow_up_edits=_edit_tuple(data.get("follow_up_edits")),
+        notes=str(data.get("notes", "")).strip(),
+    )
+
+
 def critique_signal(critique: VisualCritique, applied_edits: list[str] | None = None) -> dict[str, Any]:
     """Normalized critique record for metadata and the quality report."""
     return {
@@ -252,6 +298,24 @@ def critique_signal(critique: VisualCritique, applied_edits: list[str] | None = 
     }
 
 
+def comparison_signal(comparison: VisualComparison, applied_edits: list[str] | None = None) -> dict[str, Any]:
+    """Normalized parent/child comparison record for metadata and quality reports."""
+    return {
+        "judge": "claude-vision-refinement-comparison",
+        "alignment_score": round(comparison.alignment_score, 6),
+        "continuity_score": round(comparison.continuity_score, 6),
+        "improved": comparison.improved,
+        "preserved_identity": comparison.preserved_identity,
+        "better_image": comparison.better_image,
+        "verdict": comparison.verdict,
+        "summary": comparison.summary,
+        "regressions": list(comparison.regressions),
+        "requested_edits": [dict(edit) for edit in comparison.follow_up_edits],
+        "applied_edits": list(applied_edits or []),
+        "notes": comparison.notes,
+    }
+
+
 def apply_critique_to_plan_dict(
     plan: dict[str, Any], critique: VisualCritique
 ) -> tuple[dict[str, Any], list[str]]:
@@ -259,16 +323,31 @@ def apply_critique_to_plan_dict(
     revised: dict[str, Any] = json.loads(json.dumps(plan))  # deep copy
     actions: list[str] = []
     actions.extend(_apply_element_check_edits(revised, critique.element_checks))
-    for edit in critique.edits:
+    actions.extend(_apply_structured_edits(revised, critique.edits))
+    return revised, actions
+
+
+def apply_comparison_to_plan_dict(
+    plan: dict[str, Any], comparison: VisualComparison
+) -> tuple[dict[str, Any], list[str]]:
+    """Apply a comparison's follow-up edits to a scene-plan dict (mutates a copy)."""
+    revised: dict[str, Any] = json.loads(json.dumps(plan))  # deep copy
+    actions = _apply_structured_edits(revised, comparison.follow_up_edits)
+    return revised, actions
+
+
+def _apply_structured_edits(plan: dict[str, Any], edits: tuple[dict[str, Any], ...]) -> list[str]:
+    actions: list[str] = []
+    for edit in edits:
         action = str(edit.get("action", "")).strip().lower()
         if action not in _KNOWN_ACTIONS:
             actions.append(f"skipped unknown edit action '{action or '(missing)'}'")
             continue
         handler = _EDIT_HANDLERS[action]
-        message = handler(revised, edit)
+        message = handler(plan, edit)
         if message:
             actions.append(message)
-    return revised, actions
+    return actions
 
 
 def apply_critique_to_plan_file(
@@ -715,4 +794,4 @@ def _to_float(value: object, default: float = 0.0) -> float:
 
 
 def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
+    return round(max(0.0, min(1.0, float(value))), 6)

@@ -70,6 +70,21 @@ def test_cli_accepts_siglip_similarity_backend_options():
     assert refine_args.continuity_backend == "transformers-dinov2"
     assert refine_args.caption_similarity_backend == "transformers-sentence"
 
+    comparison_refine_args = parser.parse_args(
+        [
+            "refine",
+            "--from-dir",
+            "base",
+            "--prompt",
+            "add clouds",
+            "--output-dir",
+            "refined",
+            "--comparison",
+            "comparison.json",
+        ]
+    )
+    assert str(comparison_refine_args.comparison) == "comparison.json"
+
     verify_args = parser.parse_args(
         [
             "verify",
@@ -498,6 +513,120 @@ def test_cli_refine_records_and_applies_visual_critique(tmp_path: Path):
     assert refined_plan["objects"][0]["size"] == 0.2
     assert "visual_judgement" in {check["name"] for check in quality_report["checks"]}
     assert any("Judge: add missing elements: clouds." == action for action in quality_report["next_actions"])
+
+
+def test_cli_refine_records_and_applies_visual_comparison(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    base_dir = tmp_path / "base-comparison"
+    base_plan = base_dir / "scene-plan.json"
+    base_dir.mkdir()
+    base_plan.write_text(
+        json.dumps(
+            {
+                "title": "Comparison refinable scene",
+                "palette": ["#102040", "#ff5533", "#286fc4"],
+                "background": {"top": "#102040", "bottom": "#205080"},
+                "objects": [
+                    {"type": "sun", "x": 0.25, "y": 0.25, "size": 0.1, "color": "#ff5533"},
+                    {"type": "ocean", "y": 0.58, "color": "#286fc4"},
+                ],
+                "style": {"contrast": 0.2},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "generate",
+            "--prompt",
+            "red sun over blue ocean",
+            "--scene-plan",
+            str(base_plan),
+            "--output-dir",
+            str(base_dir),
+            "--width",
+            "120",
+            "--height",
+            "80",
+            "--max-iterations",
+            "2",
+            "--threshold",
+            "0.1",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    comparison_path = tmp_path / "comparison.json"
+    comparison_path.write_text(
+        json.dumps(
+            {
+                "alignment_score": 0.52,
+                "continuity_score": 0.43,
+                "improved": False,
+                "preserved_identity": False,
+                "better_image": "parent",
+                "verdict": "revise",
+                "summary": "Child regressed visually.",
+                "regressions": ["sun became too small", "lost parent palette"],
+                "follow_up_edits": [
+                    {"action": "resize_object", "type": "sun", "size": 0.24},
+                    {"action": "adjust_style", "field": "contrast", "delta": 0.1},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    refined_dir = tmp_path / "refined-comparison"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "refine",
+            "--from-dir",
+            str(base_dir),
+            "--prompt",
+            "red sun over blue ocean",
+            "--comparison",
+            str(comparison_path),
+            "--output-dir",
+            str(refined_dir),
+            "--max-iterations",
+            "2",
+            "--threshold",
+            "0.1",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    assert "Comparison revise alignment 0.52 continuity 0.43" in completed.stdout
+    metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
+    refined_plan = json.loads((refined_dir / "scene-plan.json").read_text(encoding="utf-8"))
+    quality_report = json.loads((refined_dir / "quality-report.json").read_text(encoding="utf-8"))
+
+    comparison = metadata["visual_comparison"]
+    assert comparison["judge"] == "claude-vision-refinement-comparison"
+    assert comparison["better_image"] == "parent"
+    assert comparison["regressions"] == ["sun became too small", "lost parent palette"]
+    assert any("resized 1 'sun'" in action for action in comparison["applied_edits"])
+    assert any("comparison: resized 1 'sun'" in action for action in metadata["scene_plan_refine_actions"])
+    assert refined_plan["objects"][0]["size"] == 0.24
+    assert refined_plan["style"]["contrast"] == 0.3
+    assert any("Comparison: address regressions: sun became too small, lost parent palette." == action for action in quality_report["next_actions"])
 
 
 def test_cli_refine_can_start_from_saved_candidate_rank(tmp_path: Path):

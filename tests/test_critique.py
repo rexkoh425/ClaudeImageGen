@@ -6,9 +6,12 @@ import pytest
 
 from claude_imagegen.critique import (
     apply_critique_to_plan_dict,
+    apply_comparison_to_plan_dict,
     build_comparison_request,
+    comparison_signal,
     critique_signal,
     known_edit_actions,
+    parse_comparison,
     parse_critique,
     write_comparison_request,
     write_critique_request,
@@ -55,6 +58,44 @@ def test_parse_from_json_string() -> None:
     critique = parse_critique(json.dumps({"closeness_score": 0.6, "verdict": "revise"}))
     assert critique.closeness_score == 0.6
     assert critique.verdict == "revise"
+
+
+def test_parse_and_apply_comparison_follow_up_edits() -> None:
+    comparison = parse_comparison(
+        {
+            "alignment_score": 0.52,
+            "continuity_score": 0.44,
+            "improved": False,
+            "preserved_identity": False,
+            "better_image": "parent",
+            "verdict": "revise",
+            "summary": "Child lost the original sun scale.",
+            "regressions": ["sun became too small", "palette drifted"],
+            "follow_up_edits": [
+                {"action": "resize_object", "type": "sun", "size": 0.24},
+                {"action": "adjust_style", "field": "contrast", "delta": 0.1},
+            ],
+            "notes": "Use parent as continuity anchor.",
+        }
+    )
+
+    assert comparison.verdict == "revise"
+    assert comparison.better_image == "parent"
+    assert comparison.regressions == ("sun became too small", "palette drifted")
+
+    revised, actions = apply_comparison_to_plan_dict(
+        {"objects": [{"type": "sun", "size": 0.1}], "style": {"contrast": 0.2}},
+        comparison,
+    )
+
+    assert revised["objects"][0]["size"] == 0.24
+    assert revised["style"]["contrast"] == 0.3
+    assert any("resized 1 'sun'" in action for action in actions)
+
+    signal = comparison_signal(comparison, applied_edits=actions)
+    assert signal["judge"] == "claude-vision-refinement-comparison"
+    assert signal["regressions"] == ["sun became too small", "palette drifted"]
+    assert signal["applied_edits"] == actions
 
 
 def test_apply_add_and_remove_object() -> None:

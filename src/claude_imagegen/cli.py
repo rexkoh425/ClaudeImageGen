@@ -118,6 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional Claude-authored visual critique JSON (closeness_score, verdict, missing/wrong/extra, edits) recorded after viewing the parent image.",
     )
+    refine.add_argument(
+        "--comparison",
+        type=Path,
+        help="Optional Claude-authored parent/child comparison JSON with follow_up_edits to apply before rendering.",
+    )
     refine.add_argument("--width", type=int, help="Output width; defaults to parent metadata width.")
     refine.add_argument("--height", type=int, help="Output height; defaults to parent metadata height.")
     refine.add_argument("--candidate-rank", help="Use a ranked candidate number, or 'auto', from the parent output candidates.json as the initial image.")
@@ -317,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
                 reference_image=args.reference_image,
                 scene_plan=args.scene_plan,
                 critique=args.critique,
+                comparison=args.comparison,
                 width=args.width,
                 height=args.height,
                 candidate_rank=args.candidate_rank,
@@ -371,6 +377,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"Critique {critique_signal_data.get('verdict')} "
                 f"closeness {critique_signal_data.get('closeness_score')} "
                 f"(applied {len(critique_signal_data.get('applied_edits', []))} edits)"
+            )
+        comparison_signal_data = result.metadata.get("visual_comparison")
+        if isinstance(comparison_signal_data, dict):
+            print(
+                f"Comparison {comparison_signal_data.get('verdict')} "
+                f"alignment {comparison_signal_data.get('alignment_score')} "
+                f"continuity {comparison_signal_data.get('continuity_score')} "
+                f"(applied {len(comparison_signal_data.get('applied_edits', []))} edits)"
             )
         return 0
 

@@ -5,7 +5,16 @@ import json
 from pathlib import Path
 
 from .candidates import annotate_candidate_selection, select_recommended_candidate
-from .critique import apply_critique_to_plan_dict, critique_signal, parse_critique, write_comparison_request, write_critique_request
+from .critique import (
+    apply_comparison_to_plan_dict,
+    apply_critique_to_plan_dict,
+    comparison_signal,
+    critique_signal,
+    parse_comparison,
+    parse_critique,
+    write_comparison_request,
+    write_critique_request,
+)
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .prompt import parse_prompt
 from .quality import apply_quality_report
@@ -19,6 +28,7 @@ class RefineOptions:
     reference_image: Path | None = None
     scene_plan: Path | None = None
     critique: Path | None = None
+    comparison: Path | None = None
     width: int | None = None
     height: int | None = None
     candidate_rank: int | str | None = None
@@ -49,12 +59,14 @@ def refine_image(options: RefineOptions) -> GenerateResult:
     width = options.width or _int_metadata(parent_metadata, "width", 720)
     height = options.height or _int_metadata(parent_metadata, "height", 480)
     critique = parse_critique(options.critique) if options.critique else None
+    comparison = parse_comparison(options.comparison) if options.comparison else None
     scene_plan = options.scene_plan or _discover_scene_plan(options.from_dir, parent_metadata)
-    scene_plan, scene_plan_actions, scene_plan_source, critique_actions = _prepare_refined_scene_plan(
+    scene_plan, scene_plan_actions, scene_plan_source, critique_actions, comparison_actions = _prepare_refined_scene_plan(
         scene_plan,
         prompt=options.prompt,
         output_dir=options.output_dir,
         critique=critique,
+        comparison=comparison,
     )
 
     result = generate_image(
@@ -117,6 +129,8 @@ def refine_image(options: RefineOptions) -> GenerateResult:
     )
     if critique is not None:
         result.metadata["visual_critique"] = critique_signal(critique, applied_edits=critique_actions)
+    if comparison is not None:
+        result.metadata["visual_comparison"] = comparison_signal(comparison, applied_edits=comparison_actions)
     apply_quality_report(options.output_dir, result.metadata)
     write_critique_request(
         options.output_dir,
@@ -243,13 +257,14 @@ def _prepare_refined_scene_plan(
     prompt: str,
     output_dir: Path,
     critique: object | None = None,
-) -> tuple[Path | None, list[str], Path | None, list[str]]:
+    comparison: object | None = None,
+) -> tuple[Path | None, list[str], Path | None, list[str], list[str]]:
     if scene_plan is None or not scene_plan.exists():
-        return scene_plan, [], scene_plan, []
+        return scene_plan, [], scene_plan, [], []
 
     data = json.loads(scene_plan.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
-        return scene_plan, [], scene_plan, []
+        return scene_plan, [], scene_plan, [], []
 
     actions = _apply_prompt_delta_edits(data, prompt)
 
@@ -258,10 +273,15 @@ def _prepare_refined_scene_plan(
         data, critique_actions = apply_critique_to_plan_dict(data, critique)
         actions.extend(f"critique: {action}" for action in critique_actions)
 
+    comparison_actions: list[str] = []
+    if comparison is not None:
+        data, comparison_actions = apply_comparison_to_plan_dict(data, comparison)
+        actions.extend(f"comparison: {action}" for action in comparison_actions)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     refined_plan = output_dir / "scene-plan.json"
     refined_plan.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return refined_plan, actions, scene_plan, critique_actions
+    return refined_plan, actions, scene_plan, critique_actions, comparison_actions
 
 
 def _apply_prompt_delta_edits(data: dict[str, object], prompt: str) -> list[str]:
