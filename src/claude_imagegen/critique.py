@@ -27,6 +27,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .palette import COLOR_RGB
+
 ACCEPT = "accept"
 REVISE = "revise"
 
@@ -256,6 +258,7 @@ def apply_critique_to_plan_dict(
     """Apply the critique's structured edits to a scene-plan dict (mutates a copy)."""
     revised: dict[str, Any] = json.loads(json.dumps(plan))  # deep copy
     actions: list[str] = []
+    actions.extend(_apply_element_check_edits(revised, critique.element_checks))
     for edit in critique.edits:
         action = str(edit.get("action", "")).strip().lower()
         if action not in _KNOWN_ACTIONS:
@@ -442,6 +445,83 @@ def _edit_add_cloud(plan: dict[str, Any], edit: dict[str, Any]) -> str:
         }
     )
     return "added default cloud bank"
+
+
+def _apply_element_check_edits(plan: dict[str, Any], checks: tuple[dict[str, Any], ...]) -> list[str]:
+    actions: list[str] = []
+    for check in checks:
+        kind = str(check.get("kind") or "").strip().lower()
+        item = str(check.get("item") or "").strip().lower()
+        if not kind or not item or not _element_check_failed(check):
+            continue
+        if kind == "object":
+            message = _apply_element_object_gap(plan, item)
+            if message:
+                actions.append(f"element_check: {message}")
+        elif kind == "color":
+            message = _apply_element_color_gap(plan, item)
+            if message:
+                actions.append(f"element_check: {message}")
+    return actions
+
+
+def _apply_element_object_gap(plan: dict[str, Any], item: str) -> str:
+    if item == "cloud":
+        return _edit_add_cloud(plan, {})
+    return _edit_add_object(
+        plan,
+        {
+            "type": item,
+            "label": f"critique-check-added {item}",
+            "x": 0.5,
+            "y": 0.45,
+            "size": 0.22,
+            "opacity": 1.0,
+            "color": _color_hex(item),
+        },
+    )
+
+
+def _apply_element_color_gap(plan: dict[str, Any], item: str) -> str:
+    style = plan.get("style")
+    if not isinstance(style, dict):
+        style = {}
+        plan["style"] = style
+    style["saturation"] = _clamp01(_to_float(style.get("saturation", 0.35), 0.35) + 0.16)
+    style["contrast"] = _clamp01(_to_float(style.get("contrast", 0.35), 0.35) + 0.08)
+
+    palette = _list_field(plan, "palette")
+    color = _color_hex(item)
+    if color not in palette:
+        palette.append(color)
+    return f"strengthened checked color '{item}'"
+
+
+def _element_check_failed(check: dict[str, Any]) -> bool:
+    present = _bool_or_none(check.get("present"))
+    if present is False:
+        return True
+    confidence = _to_float(check.get("confidence"), 1.0)
+    return confidence < 0.5
+
+
+def _bool_or_none(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "present"}:
+            return True
+        if normalized in {"false", "no", "missing", "absent"}:
+            return False
+    return None
+
+
+def _color_hex(name: str) -> str:
+    rgb = COLOR_RGB.get(name)
+    if rgb is None:
+        return "#f2f2f2"
+    return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
 
 _EDIT_HANDLERS = {

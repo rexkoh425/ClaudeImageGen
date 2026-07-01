@@ -114,6 +114,50 @@ def test_apply_set_palette_and_add_cloud() -> None:
     assert any("palette" in a for a in actions)
 
 
+def test_apply_missing_object_element_check_adds_visible_cloud() -> None:
+    critique = parse_critique(
+        {
+            "element_checks": [
+                {
+                    "kind": "object",
+                    "item": "cloud",
+                    "present": False,
+                    "confidence": 0.2,
+                    "notes": "not visible enough",
+                }
+            ]
+        }
+    )
+
+    revised, actions = apply_critique_to_plan_dict({"objects": []}, critique)
+
+    assert len(revised["clouds"]) == 1
+    assert any("element_check: added default cloud bank" in action for action in actions)
+
+
+def test_apply_low_confidence_color_element_check_strengthens_style() -> None:
+    critique = parse_critique(
+        {
+            "element_checks": [
+                {
+                    "kind": "color",
+                    "item": "red",
+                    "present": True,
+                    "confidence": 0.35,
+                    "notes": "sun reads closer to pink",
+                }
+            ]
+        }
+    )
+
+    revised, actions = apply_critique_to_plan_dict({"style": {"saturation": 0.2, "contrast": 0.3}}, critique)
+
+    assert revised["style"]["saturation"] > 0.2
+    assert revised["style"]["contrast"] > 0.3
+    assert "#dc403a" in revised["palette"]
+    assert any("element_check: strengthened checked color 'red'" in action for action in actions)
+
+
 def test_unknown_action_is_skipped_not_fatal() -> None:
     critique = parse_critique({"edits": [{"action": "teleport_object", "type": "sun"}]})
     revised, actions = apply_critique_to_plan_dict({"objects": []}, critique)
