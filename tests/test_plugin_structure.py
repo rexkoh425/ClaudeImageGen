@@ -119,27 +119,25 @@ def test_shell_entrypoint_is_forced_to_lf_on_checkout():
 def test_readme_documents_claude_plugin_install_flow():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
+    assert len(readme.splitlines()) <= 170
+    assert "Claude ImageGen is available through the Claude Code plugin marketplace" in readme
+    assert "If the repo is private" in readme
+    assert "Restart Claude Code after installation" in readme
+    assert "python -m pip install -e ." in readme
+    assert "scene-plan.json" in readme
+    assert "image.png" in readme
+    assert "metadata.json" in readme
+    assert "quality-report.json" in readme
     assert "critique-request.json" in readme
-    assert "visual_checklist" in readme
-    assert "element_checks" in readme
-    assert "failed checklist items" in readme
-    assert "checklist-derived edits" in readme
-    assert "style/mood checks" in readme
     assert "comparison-request.json" in readme
-    assert "refine --comparison" in readme
-    assert "visual_comparison" in readme
-    assert "refinement_delta" in readme
-    assert "refinement_guidance" in readme
-    assert "multiscale_luminance_ssim_score" in readme
-    assert "weakest_continuity_region" in readme
-    assert "aesthetic_score" in readme
+    assert "verification-report.json" in readme
     assert "device_summary" in readme
     assert "image_summary" in readme
     assert "nonblank" in readme
     assert "--strong-size" in readme
-    assert "complex planned scene" in readme
-    assert "claude plugin marketplace add rexkoh425/ClaudeImageGen" in readme
-    assert "claude plugin install claude-imagegen@claude-imagegen" in readme
-    assert "claude plugin marketplace add ./" in readme
+    assert "## Install In Claude Code" in readme
+    assert "/plugin marketplace add rexkoh425/ClaudeImageGen" in readme
+    assert "/plugin install claude-imagegen@claude-imagegen" in readme
+    assert "claude plugin marketplace add ./" not in readme
     assert "claude plugin validate . --strict" in readme
     assert "claude plugin validate .claude-plugin/marketplace.json --strict" in readme
