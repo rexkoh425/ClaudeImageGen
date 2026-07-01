@@ -79,7 +79,7 @@ claude-imagegen pair-eval \
   --quality-target 0.9
 ```
 
-Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`, then run `claude-imagegen eval-plan --evaluation claude-response.json --prompt "<same prompt>" --output-dir claude-imagegen-output/greenhouse-plan --quality-target 0.9`. Repeat `--evaluation` with multiple Claude responses to keep the gate conservative when scores disagree.
+Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`, then run `claude-imagegen eval-plan --evaluation claude-response.json --prompt "<same prompt>" --output-dir claude-imagegen-output/greenhouse-plan --quality-target 0.9 --min-evaluations 2`. Repeat `--evaluation` with multiple Claude responses to keep the gate conservative when scores disagree.
 
 Do not claim GPT/Sora parity unless the after image scores at least `0.9` and the response marks the gate as met.
 

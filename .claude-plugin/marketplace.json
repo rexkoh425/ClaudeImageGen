@@ -1,7 +1,7 @@
 {
   "name": "claude-imagegen",
   "description": "GitHub marketplace for installing the Claude ImageGen plugin on another machine.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "owner": {
     "name": "ClaudeImageGen"
   },
@@ -10,7 +10,7 @@
       "name": "claude-imagegen",
       "displayName": "Claude ImageGen",
       "description": "Generate local CPU-first images from Claude-authored scene plans with optional GPU diffusion.",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "source": "./",
       "category": "creative",
       "keywords": [

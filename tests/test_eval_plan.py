@@ -144,6 +144,30 @@ def test_pair_evaluation_plan_requires_consensus_across_multiple_claude_judges(t
     assert "multiple Claude evaluations disagree" in result.plan["acceptance_reason"]
 
 
+def test_pair_evaluation_plan_requires_minimum_judge_count_for_acceptance(tmp_path: Path):
+    from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
+
+    accepting_response = tmp_path / "accepting-response.json"
+    _write_accepting_pair_response(accepting_response)
+
+    result = build_eval_plan(
+        EvalPlanOptions(
+            evaluation=accepting_response,
+            prompt="deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "plan",
+            quality_target=0.9,
+        )
+    )
+
+    assert result.plan["evaluation_count"] == 1
+    assert result.plan["minimum_evaluations_required"] == 2
+    assert result.plan["target_quality_met"] is False
+    assert result.plan["acceptance_consensus_met"] is False
+    assert result.plan["best_after_score"] == 0.9
+    assert result.plan["next_action"] == "enhance-night"
+    assert "at least 2 Claude evaluations" in result.plan["acceptance_reason"]
+
+
 def test_cli_eval_plan_writes_improvement_plan_without_images(tmp_path: Path):
     response_path = tmp_path / "pair-response.json"
     _write_pair_response(response_path)

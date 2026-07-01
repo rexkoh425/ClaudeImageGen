@@ -15,6 +15,7 @@ class EvalPlanOptions:
     evaluation: Path | None = None
     evaluations: tuple[Path, ...] = ()
     quality_target: float = 0.9
+    min_evaluations: int = 2
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,8 @@ def build_eval_plan(options: EvalPlanOptions) -> EvalPlanResult:
     detail_score = min(detail_scores)
     after_score_median = round(float(statistics.median(after_scores)), 6)
     after_score_max = round(max(after_scores), 6)
-    acceptance_consensus_met = all(bool(sample["gate_met"]) for sample in samples)
+    minimum_evaluations_met = len(samples) >= max(1, int(options.min_evaluations))
+    acceptance_consensus_met = minimum_evaluations_met and all(bool(sample["gate_met"]) for sample in samples)
     parity = all(bool(sample["parity"]) for sample in samples)
     target_quality_met = acceptance_consensus_met and parity
     failure_modes: list[str] = []
@@ -62,6 +64,8 @@ def build_eval_plan(options: EvalPlanOptions) -> EvalPlanResult:
         "evaluation_count": len(samples),
         "prompt": options.prompt,
         "quality_target": options.quality_target,
+        "minimum_evaluations_required": max(1, int(options.min_evaluations)),
+        "minimum_evaluations_met": minimum_evaluations_met,
         "target_quality_met": target_quality_met,
         "acceptance_consensus_met": acceptance_consensus_met,
         "gpt_sora_parity_boolean": parity,
@@ -87,6 +91,8 @@ def build_eval_plan(options: EvalPlanOptions) -> EvalPlanResult:
             target_quality_met=target_quality_met,
             parity=parity,
             acceptance_consensus_met=acceptance_consensus_met,
+            minimum_evaluations_met=minimum_evaluations_met,
+            minimum_evaluations_required=max(1, int(options.min_evaluations)),
             evaluation_count=len(samples),
             score_gap=score_gap,
             best_after_score=best_after_score,
@@ -206,6 +212,8 @@ def _acceptance_reason(
     target_quality_met: bool,
     parity: bool,
     acceptance_consensus_met: bool,
+    minimum_evaluations_met: bool,
+    minimum_evaluations_required: int,
     evaluation_count: int,
     score_gap: float,
     best_after_score: float,
@@ -213,6 +221,11 @@ def _acceptance_reason(
 ) -> str:
     if target_quality_met and parity:
         return "Accept only after verifying the Claude evaluation response and artifact paths."
+    if not minimum_evaluations_met:
+        return (
+            f"Do not accept: at least {minimum_evaluations_required} Claude evaluations are required "
+            f"for this quality gate; only {evaluation_count} provided."
+        )
     if evaluation_count > 1 and not acceptance_consensus_met:
         return (
             "Do not accept: multiple Claude evaluations disagree or at least one response failed the gate; "

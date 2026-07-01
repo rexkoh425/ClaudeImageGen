@@ -362,6 +362,12 @@ def build_parser() -> argparse.ArgumentParser:
     eval_plan.add_argument("--prompt", required=True, help="Prompt the image pair should satisfy.")
     eval_plan.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/eval-plan"))
     eval_plan.add_argument("--quality-target", type=float, default=0.9)
+    eval_plan.add_argument(
+        "--min-evaluations",
+        type=int,
+        default=2,
+        help="Minimum Claude judge responses required before accepting the quality gate.",
+    )
 
     setup = subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
     setup.add_argument(
@@ -623,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
                 prompt=args.prompt,
                 output_dir=args.output_dir,
                 quality_target=args.quality_target,
+                min_evaluations=args.min_evaluations,
             )
         )
         print(f"Improvement plan {result.plan_path}")
