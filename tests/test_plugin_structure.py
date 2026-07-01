@@ -80,6 +80,7 @@ def test_claude_skill_and_executable_are_present():
     assert "revision_hints" in skill_text
     assert "critique-request.json" in skill_text
     assert "refine --critique" in skill_text
+    assert "complex planned scene" in skill_text
     assert "reference_palette" in skill_text
     assert "initial_palette" in skill_text
     assert "--caption-backend" in skill_text
@@ -102,6 +103,7 @@ def test_readme_documents_claude_plugin_install_flow():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "critique-request.json" in readme
+    assert "complex planned scene" in readme
     assert "claude plugin marketplace add rexkoh425/ClaudeImageGen" in readme
     assert "claude plugin install claude-imagegen@claude-imagegen" in readme
     assert "claude plugin marketplace add ./" in readme

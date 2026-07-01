@@ -658,6 +658,17 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["status"] == "pass"
     assert [case["size"] for case in report["cases"] if case["type"] == "generate"] == ["80x48", "128x72"]
+    complex_case = next(case for case in report["cases"] if case["type"] == "complex-plan")
+    assert complex_case["scene_plan_used"] is True
+    assert complex_case["scene_plan_feature_count"] >= 12
+    assert complex_case["scene_plan_material_count"] >= 1
+    assert complex_case["scene_plan_terrain_count"] >= 1
+    assert complex_case["scene_plan_reflection_count"] >= 1
+    assert complex_case["scene_plan_warp_count"] >= 1
+    assert complex_case["scene_plan_beam_count"] >= 1
+    assert complex_case["scene_plan_cloud_count"] >= 1
+    assert complex_case["scene_plan_shadow_count"] >= 1
+    assert complex_case["scene_plan_focus_used"] is True
     assert any(case["type"] == "refine" for case in report["cases"])
     assert report["strong_model"] == "not-requested"
 
@@ -675,6 +686,11 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
             assert f"{metadata['width']}x{metadata['height']}" == case["size"]
             assert (case_dir / "candidates.json").exists()
             assert (case_dir / "candidates" / "contact-sheet.png").exists()
+        if case["type"] == "complex-plan":
+            assert (case_dir / "scene-plan.json").exists()
+            assert metadata["scene_plan_used"] is True
+            assert metadata["scene_plan_material_count"] >= 1
+            assert metadata["scene_plan_focus_used"] is True
         if case["type"] == "refine":
             assert metadata["parent_candidate_selection"] == "auto"
             assert metadata["initial_similarity_score"] is not None

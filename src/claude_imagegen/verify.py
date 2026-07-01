@@ -14,6 +14,22 @@ DEFAULT_VERIFY_SIZES = ((320, 192), (768, 432), (1024, 640))
 DEFAULT_VERIFY_PROMPT = "cinematic red robot portrait over blue ocean with clouds, reflections, and atmospheric light"
 DEFAULT_REFINE_PROMPT = "cinematic red robot portrait over blue ocean with brighter clouds and stronger water reflections"
 DEFAULT_BLIP_MODEL = "Salesforce/blip-image-captioning-base"
+SCENE_PLAN_COUNT_FIELDS = (
+    "scene_plan_background_stop_count",
+    "scene_plan_element_count",
+    "scene_plan_gradient_count",
+    "scene_plan_motif_count",
+    "scene_plan_texture_count",
+    "scene_plan_material_count",
+    "scene_plan_terrain_count",
+    "scene_plan_reflection_count",
+    "scene_plan_warp_count",
+    "scene_plan_veil_count",
+    "scene_plan_light_count",
+    "scene_plan_beam_count",
+    "scene_plan_cloud_count",
+    "scene_plan_shadow_count",
+)
 
 
 @dataclass(frozen=True)
@@ -71,6 +87,15 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
         )
         generated_results.append(result)
         cases.append(_case_report("generate", result, requested_size=cap_dimensions(width, height)))
+
+    complex_width, complex_height = options.sizes[-1]
+    complex_result = _run_complex_plan_case(
+        options,
+        output_dir,
+        width=complex_width,
+        height=complex_height,
+    )
+    cases.append(_case_report("complex-plan", complex_result, requested_size=cap_dimensions(complex_width, complex_height)))
 
     refine_source = generated_results[0]
     refine_dir = output_dir / "refine-auto-candidate"
@@ -206,6 +231,33 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
     return "pass"
 
 
+def _run_complex_plan_case(options: VerifyOptions, output_dir: Path, *, width: int, height: int) -> GenerateResult:
+    capped_width, capped_height = cap_dimensions(width, height)
+    case_dir = output_dir / f"complex-plan-{capped_width}x{capped_height}"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    scene_plan_path = case_dir / "scene-plan.json"
+    scene_plan_path.write_text(json.dumps(_complex_scene_plan(), indent=2), encoding="utf-8")
+    return generate_image(
+        GenerateOptions(
+            prompt=options.prompt,
+            output_dir=case_dir,
+            scene_plan=scene_plan_path,
+            width=width,
+            height=height,
+            max_iterations=1,
+            threshold=0.1,
+            seed=707,
+            save_candidates=options.save_candidates,
+            similarity_backend="local",
+            similarity_device="cpu",
+            caption_backend="local",
+            caption_device="cpu",
+            caption_similarity_backend="local",
+            caption_similarity_device="cpu",
+        )
+    )
+
+
 def _default_similarity_model(similarity_backend: str) -> str:
     normalized = similarity_backend.strip().lower()
     if normalized in {"siglip", "transformers-siglip"}:
@@ -241,7 +293,8 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
     size_ok = (width, height) == requested_size
     candidates_ok = metadata.get("candidate_count", 0) == 0 or bool(metadata.get("candidate_index"))
     refine_ok = case_type != "refine" or metadata.get("parent_candidate_selection") == "auto"
-    status = "pass" if files_ok and size_ok and candidates_ok and refine_ok else "fail"
+    complex_ok = case_type != "complex-plan" or _complex_scene_plan_ok(metadata)
+    status = "pass" if files_ok and size_ok and candidates_ok and refine_ok and complex_ok else "fail"
     return {
         "type": case_type,
         "status": status,
@@ -269,8 +322,121 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "effective_continuity_device": metadata.get("effective_continuity_device"),
         "effective_caption_device": metadata.get("effective_caption_device"),
         "parent_candidate_selection": metadata.get("parent_candidate_selection"),
+        "scene_plan_used": metadata.get("scene_plan_used"),
+        "scene_plan_title": metadata.get("scene_plan_title"),
+        "scene_plan_feature_count": _scene_plan_feature_count(metadata),
+        **{field: metadata.get(field) for field in SCENE_PLAN_COUNT_FIELDS},
+        "scene_plan_atmosphere_used": metadata.get("scene_plan_atmosphere_used"),
+        "scene_plan_focus_used": metadata.get("scene_plan_focus_used"),
     }
 
 
 def _metadata_size(metadata: dict[str, object]) -> tuple[int, int]:
     return int(metadata.get("width", 0)), int(metadata.get("height", 0))
+
+
+def _complex_scene_plan_ok(metadata: dict[str, object]) -> bool:
+    return (
+        bool(metadata.get("scene_plan_used"))
+        and _scene_plan_feature_count(metadata) >= 12
+        and _int_metadata(metadata, "scene_plan_material_count") >= 1
+        and _int_metadata(metadata, "scene_plan_terrain_count") >= 1
+        and _int_metadata(metadata, "scene_plan_reflection_count") >= 1
+        and _int_metadata(metadata, "scene_plan_warp_count") >= 1
+        and _int_metadata(metadata, "scene_plan_beam_count") >= 1
+        and _int_metadata(metadata, "scene_plan_cloud_count") >= 1
+        and _int_metadata(metadata, "scene_plan_shadow_count") >= 1
+        and bool(metadata.get("scene_plan_focus_used"))
+    )
+
+
+def _scene_plan_feature_count(metadata: dict[str, object]) -> int:
+    count = sum(_int_metadata(metadata, field) for field in SCENE_PLAN_COUNT_FIELDS)
+    if metadata.get("scene_plan_atmosphere_used"):
+        count += 1
+    if metadata.get("scene_plan_focus_used"):
+        count += 1
+    return count
+
+
+def _int_metadata(metadata: dict[str, object], field: str) -> int:
+    try:
+        return int(metadata.get(field, 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _complex_scene_plan() -> dict[str, object]:
+    return {
+        "title": "verification complex coastal robot scene",
+        "palette": ["#102040", "#ff5533", "#286fc4", "#123d2a", "#fff1dd"],
+        "background": {
+            "top": "#102040",
+            "bottom": "#205080",
+            "direction": "vertical",
+            "stops": [
+                {"at": 0.0, "color": "#102040"},
+                {"at": 0.42, "color": "#ffcf8a"},
+                {"at": 1.0, "color": "#205080"},
+            ],
+        },
+        "objects": [
+            {"type": "sun", "label": "large warm focal sun", "x": 0.24, "y": 0.24, "size": 0.18, "color": "#ff5533"},
+            {"type": "robot", "label": "central red robot portrait", "x": 0.50, "y": 0.48, "size": 0.22, "color": "#c83a3a"},
+            {"type": "ocean", "label": "reflective lower ocean", "y": 0.58, "color": "#286fc4"},
+            {"type": "foreground", "label": "dark grassy foreground", "y": 0.82, "color": "#123d2a"},
+        ],
+        "elements": [
+            {"type": "glow", "label": "sun bloom", "x": 0.24, "y": 0.24, "width": 0.24, "height": 0.24, "fill": "#ffcf8a", "opacity": 0.42, "z": 1},
+            {
+                "type": "rectangle",
+                "label": "deep water gradient",
+                "x": 0.50,
+                "y": 0.70,
+                "width": 1.0,
+                "height": 0.26,
+                "gradient": {"type": "linear", "colors": ["#2e8ddb", "#0a3d72"], "direction": "vertical"},
+                "opacity": 0.48,
+                "blend": "multiply",
+                "z": 5,
+            },
+            {"type": "polyline", "label": "water highlight", "points": [[0.12, 0.66], [0.40, 0.69], [0.86, 0.65]], "stroke": "#f6e2b5", "width": 0.01, "opacity": 0.72, "blur": 0.012, "blend": "screen", "z": 7},
+        ],
+        "motifs": [
+            {"type": "starfield", "label": "small upper sky points", "count": 24, "region": [0.0, 0.02, 1.0, 0.28], "color": "#fff5cc", "size": 0.006, "opacity": 0.60, "seed": 12, "z": 8},
+            {"type": "grass", "label": "foreground grass texture", "count": 80, "region": [0.0, 0.78, 1.0, 1.0], "color": "#1a5c36", "size": 0.045, "opacity": 0.65, "seed": 21, "z": 12},
+        ],
+        "textures": [
+            {"type": "ripple", "label": "water surface bands", "count": 30, "region": [0.0, 0.56, 1.0, 0.80], "color": "#d8f3ff", "density": 0.6, "scale": 0.025, "opacity": 0.36, "blend": "screen", "seed": 31, "z": 9}
+        ],
+        "materials": [
+            {"type": "water", "label": "reflective ocean material", "region": [0.0, 0.56, 1.0, 0.82], "colors": ["#8bdcff", "#0b3b71"], "intensity": 0.72, "scale": 0.035, "opacity": 0.58, "seed": 41, "z": 8}
+        ],
+        "terrains": [
+            {"type": "mountain", "label": "faceted distant ridge", "points": [[0.02, 0.56], [0.22, 0.24], [0.42, 0.56], [0.64, 0.34], [0.96, 0.56]], "base": 0.78, "fill": "#405070", "shade": "#182030", "highlight": "#7890b0", "opacity": 0.76, "facets": True, "z": 4}
+        ],
+        "reflections": [
+            {"type": "vertical", "label": "mirrored sky and ridge", "source": [0.0, 0.16, 1.0, 0.56], "target": [0.0, 0.56, 1.0, 0.80], "opacity": 0.36, "blur": 0.025, "fade": 0.62, "tint": "#2d88d8", "blend": "screen", "z": 8}
+        ],
+        "warps": [
+            {"type": "wave", "label": "water reflection displacement", "region": [0.0, 0.56, 1.0, 0.82], "direction": "horizontal", "amplitude": 0.018, "wavelength": 0.38, "phase": 0.20, "seed": 43, "z": 10}
+        ],
+        "atmosphere": {"type": "horizon_fog", "label": "cool horizon haze", "color": "#d8e8f0", "horizon": 0.56, "height": 0.22, "strength": 0.32},
+        "veils": [
+            {"type": "mist", "label": "localized sea mist", "region": [0.04, 0.48, 0.96, 0.68], "color": "#d8e8f0", "opacity": 0.22, "blur": 0.026, "blend": "screen", "falloff": 0.18, "direction": "vertical", "z": 8}
+        ],
+        "lights": [
+            {"type": "radial", "label": "warm focal light", "x": 0.24, "y": 0.24, "radius": 0.35, "color": "#ffcf8a", "intensity": 0.48, "z": 10}
+        ],
+        "beams": [
+            {"type": "sunbeam", "label": "diagonal shafts through haze", "x": 0.24, "y": 0.24, "angle": 70.0, "length": 0.70, "spread": 24.0, "color": "#ffcf8a", "opacity": 0.22, "blur": 0.035, "blend": "screen", "count": 2, "seed": 44, "z": 9}
+        ],
+        "clouds": [
+            {"type": "cumulus", "label": "upper cloud bank", "region": [0.05, 0.08, 0.95, 0.34], "color": "#fff5dd", "shadow": "#8aa0b8", "opacity": 0.38, "blur": 0.025, "count": 3, "lobes": 5, "scale": 0.13, "blend": "screen", "seed": 45, "z": 4}
+        ],
+        "shadows": [
+            {"type": "ellipse", "label": "robot grounding shadow", "x": 0.50, "y": 0.76, "width": 0.42, "height": 0.10, "color": "#101820", "opacity": 0.34, "blur": 0.035, "blend": "multiply", "z": 9}
+        ],
+        "focus": {"type": "depth", "label": "focal composition band", "region": [0.04, 0.10, 0.84, 0.82], "blur": 0.018, "falloff": 0.12, "mode": "outside"},
+        "style": {"grain": 0.08, "vignette": 0.12, "saturation": 0.32, "contrast": 0.22, "warmth": 0.18, "bloom": 0.22, "antialias": 1.0},
+    }
