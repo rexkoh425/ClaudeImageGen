@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .candidates import annotate_candidate_selection, select_recommended_candidate
+from .critique import apply_critique_to_plan_dict, critique_signal, parse_critique
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .prompt import parse_prompt
 from .quality import apply_quality_report
@@ -17,6 +18,7 @@ class RefineOptions:
     output_dir: Path
     reference_image: Path | None = None
     scene_plan: Path | None = None
+    critique: Path | None = None
     width: int | None = None
     height: int | None = None
     candidate_rank: int | str | None = None
@@ -40,11 +42,13 @@ def refine_image(options: RefineOptions) -> GenerateResult:
     parent_image, parent_candidate, parent_candidate_selection = _select_parent_image(options.from_dir, options.candidate_rank)
     width = options.width or _int_metadata(parent_metadata, "width", 720)
     height = options.height or _int_metadata(parent_metadata, "height", 480)
+    critique = parse_critique(options.critique) if options.critique else None
     scene_plan = options.scene_plan or _discover_scene_plan(options.from_dir, parent_metadata)
-    scene_plan, scene_plan_actions, scene_plan_source = _prepare_refined_scene_plan(
+    scene_plan, scene_plan_actions, scene_plan_source, critique_actions = _prepare_refined_scene_plan(
         scene_plan,
         prompt=options.prompt,
         output_dir=options.output_dir,
+        critique=critique,
     )
 
     result = generate_image(
@@ -96,6 +100,8 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             "scene_plan_refine_actions": scene_plan_actions,
         }
     )
+    if critique is not None:
+        result.metadata["visual_critique"] = critique_signal(critique, applied_edits=critique_actions)
     apply_quality_report(options.output_dir, result.metadata)
     result.metadata_path.write_text(json.dumps(result.metadata, indent=2), encoding="utf-8")
     return result
@@ -207,19 +213,26 @@ def _prepare_refined_scene_plan(
     *,
     prompt: str,
     output_dir: Path,
-) -> tuple[Path | None, list[str], Path | None]:
+    critique: object | None = None,
+) -> tuple[Path | None, list[str], Path | None, list[str]]:
     if scene_plan is None or not scene_plan.exists():
-        return scene_plan, [], scene_plan
+        return scene_plan, [], scene_plan, []
 
     data = json.loads(scene_plan.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
-        return scene_plan, [], scene_plan
+        return scene_plan, [], scene_plan, []
 
     actions = _apply_prompt_delta_edits(data, prompt)
+
+    critique_actions: list[str] = []
+    if critique is not None:
+        data, critique_actions = apply_critique_to_plan_dict(data, critique)
+        actions.extend(f"critique: {action}" for action in critique_actions)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     refined_plan = output_dir / "scene-plan.json"
     refined_plan.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return refined_plan, actions, scene_plan
+    return refined_plan, actions, scene_plan, critique_actions
 
 
 def _apply_prompt_delta_edits(data: dict[str, object], prompt: str) -> list[str]:

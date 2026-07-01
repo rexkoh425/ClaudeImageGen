@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from .embedding import image_embedding_similarity
 from .palette import COLOR_RGB, RGB, average_color
 from .prompt import PromptSpec
 
@@ -72,6 +73,7 @@ def image_similarity_details(
         _normalized_pixel_vector(image_array),
         _normalized_pixel_vector(comparison_array),
     )
+    embedding_cosine_score = image_embedding_similarity(image_rgb, comparison_rgb)
     luminance_ssim_score = _luminance_ssim_score(image_array, comparison_array)
     edge_cosine_score = _cosine_similarity(
         _edge_feature_vector(image_array),
@@ -79,13 +81,15 @@ def image_similarity_details(
     )
     color_histogram_score = _color_histogram_similarity(image_array, comparison_array)
     local_continuity_score = _clamp01(
-        (0.34 * luminance_ssim_score)
-        + (0.26 * edge_cosine_score)
-        + (0.24 * color_histogram_score)
-        + (0.16 * image_cosine_score)
+        (0.30 * embedding_cosine_score)
+        + (0.24 * luminance_ssim_score)
+        + (0.18 * edge_cosine_score)
+        + (0.16 * color_histogram_score)
+        + (0.12 * image_cosine_score)
     )
 
     details = {
+        "image_embedding_cosine_score": round(embedding_cosine_score, 6),
         "image_cosine_score": round(image_cosine_score, 6),
         "luminance_ssim_score": round(luminance_ssim_score, 6),
         "edge_cosine_score": round(edge_cosine_score, 6),

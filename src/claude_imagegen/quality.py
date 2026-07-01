@@ -63,6 +63,19 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
         ),
     ]
 
+    critique = metadata.get("visual_critique")
+    if isinstance(critique, dict) and "closeness_score" in critique:
+        checks.append(
+            _check(
+                name="visual_judgement",
+                score=_float(critique.get("closeness_score"), 0.0),
+                pass_threshold=0.78,
+                review_threshold=0.55,
+                weight=0.30,
+                detail="Claude-vision judge closeness (LMM-as-evaluator / VQAScore-style) after viewing the image.",
+            )
+        )
+
     initial_similarity = _float_or_none(metadata.get("initial_similarity_score"))
     if initial_similarity is not None:
         checks.append(
@@ -174,6 +187,18 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
     missing_colors = _string_list(metadata.get("caption_missing_colors"))
     if missing_colors:
         actions.append(f"Strengthen requested colors: {', '.join(missing_colors)}.")
+
+    critique = metadata.get("visual_critique")
+    if isinstance(critique, dict):
+        critique_missing = _string_list(critique.get("missing"))
+        critique_wrong = _string_list(critique.get("wrong"))
+        critique_extra = _string_list(critique.get("extra"))
+        if critique_missing:
+            actions.append(f"Judge: add missing elements: {', '.join(critique_missing)}.")
+        if critique_wrong:
+            actions.append(f"Judge: fix incorrect elements: {', '.join(critique_wrong)}.")
+        if critique_extra:
+            actions.append(f"Judge: remove or downplay unrequested elements: {', '.join(critique_extra)}.")
 
     failed = [str(check.get("name")) for check in checks if check.get("status") == "revise"]
     if "prompt_alignment" in failed:

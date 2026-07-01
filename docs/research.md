@@ -87,3 +87,99 @@ At 2048x2048 there are 4,194,304 pixels. Even a compact textual RGB representati
 - Add more reflection controls such as horizon-aware masking and layered wave fields while keeping CPU rendering deterministic.
 - Add weather presets such as storm clouds, fog banks, and low stratus layers using the cloud primitive.
 - Add image-to-image edit modes: preserve composition from `--initial-image`, mutate palette/object overlays, and use a stricter reference similarity score.
+
+## Similarity Methods Survey (2025)
+
+This project generates images from code that Claude Code authors, with no hosted image API. The
+verification side therefore matters as much as generation: we need trustworthy ways to measure
+how close an image is to a text prompt and to a previous/target image. The current methods, and
+how each maps to this code-only loop, are below.
+
+### Image-to-text alignment (the "is this the right picture" question)
+
+- **CLIPScore** ([CLIP](https://arxiv.org/abs/2103.00020)) is the standard baseline: cosine
+  between CLIP text and image embeddings. It is cheap and scalable but behaves like a
+  "bag of words", conflating compositional prompts (it can score "the horse eats the grass"
+  and "the grass eats the horse" similarly). Good as a coarse signal, weak on attribute/relation
+  binding. This project's optional `transformers-clip` backend is exactly CLIPScore.
+- **SigLIP / SigLIP2** ([SigLIP](https://arxiv.org/abs/2303.15343)) replace CLIP's batch-softmax
+  with an independent sigmoid per image-text pair. That is a better fit when scoring a single
+  prompt/image pair in an iterative loop because there is no dependence on a batch of negatives,
+  and SigLIP2 reports richer, more invertible features. This is the recommended drop-in upgrade
+  for the optional model-backed text scorer.
+- **VQAScore** ([Lin et al., ECCV 2024](https://linzhiqiu.github.io/papers/vqascore/)) asks a
+  visual-question-answering model "Does this figure show {text}?" and uses P(yes). It is
+  state-of-the-art for image-text alignment correlation with humans across many benchmarks and
+  handles compositional prompts far better than CLIPScore. **This is the single most important
+  reference for this project**, because Claude Code can compute a VQAScore-style judgement
+  natively: open the rendered PNG, answer how well each requested element is present, and return a
+  structured 0-1 score. No external model is required.
+- **TIT-Score / image-to-text-to-text consistency**
+  ([2025](https://arxiv.org/pdf/2510.02987)) captions the image and compares the caption back to
+  the prompt in text space, which is robust for long prompts. This is the existing caption
+  backcheck (`caption_*` fields); the 2025 literature confirms it as a valid independent signal.
+- **ImageReward** ([Xu et al., 2023](https://arxiv.org/abs/2304.05977)) fine-tunes BLIP on human
+  preference data for an aesthetic/preference reward, useful for ranking among already-aligned
+  candidates rather than for alignment itself.
+- **LMM-as-evaluator** is the clearest 2025 trend: fine-tuned or prompted multimodal LLMs act as
+  the direct judge of generated images (e.g. "Multi-Modal Language Models as Text-to-Image Model
+  Evaluators", and grounded-reasoning diagnostics like ImageDoctor). This directly justifies the
+  design choice in this repository: **Claude's own vision is the judge in the refinement loop.**
+
+### Image-to-image similarity (the "did the edit keep what mattered" question)
+
+- **SSIM / PSNR** are classic, model-free structural/error metrics. SSIM (luminance + contrast +
+  structure) is good for continuity between refinement iterations but blind to semantics. Already
+  used here as `luminance_ssim_score`.
+- **LPIPS** ([Zhang et al., 2018](https://arxiv.org/abs/1801.03924)) compares deep CNN features and
+  tracks low-level human perception well, but is not semantic: two images can look similar and mean
+  very different things.
+- **CLIP image embeddings** give a 512-d semantic vector; good at details and text-guided retrieval.
+- **DINOv2** ([Oquab et al., 2023](https://arxiv.org/abs/2304.07193)) is self-supervised, 768-d, and
+  **outperforms CLIP for pure image-to-image similarity**, especially at identifying the primary
+  subject and fine-grained distinctions. It is the recommended optional backend for the
+  image-embedding continuity signal.
+- **DreamSim** ([Fu et al., 2023](https://arxiv.org/abs/2306.09344)) fuses OpenCLIP + DINO features
+  and is tuned on human similarity judgements, bridging low-level (LPIPS/SSIM) and high-level (CLIP)
+  similarity. It is the best single learned image-image metric to target when weights are allowed.
+
+### What this repository implements without any model weights or API
+
+Because the default path must run with only `numpy` and `Pillow`, the project uses a **layered local
+image embedding** (`embedding.py`) that approximates the structure-plus-semantics idea above without
+a neural network:
+
+1. Regional mean color on a grid, in a perceptual-ish space (luma + opponent color channels), to
+   capture global layout and palette placement (a cheap stand-in for DINOv2's "primary elements").
+2. Per-region hue/saturation/value histograms for color-distribution similarity (color-histogram
+   intersection is a well-known robust image-similarity primitive).
+3. Edge-orientation histograms per region (a HOG-like descriptor) for structure and silhouette
+   continuity, complementing SSIM.
+4. Global statistics: contrast, brightness, saturation, warmth, edge density.
+
+These are concatenated and L2-normalized into one vector; image-to-image closeness is the cosine of
+two such vectors, remapped to 0-1. This is intentionally not CLIP/DINOv2 quality, but it is
+deterministic, auditable, fast, and — critically — always available, giving the refinement loop a
+stable quantitative closeness number to optimize. When `torch` + weights are present, the optional
+CLIP (and, in future, DINOv2/DreamSim) image-embedding cosine is blended in for a stronger signal.
+
+### How the layered signals combine in the loop
+
+The refinement loop is meant to use independent signals rather than a single oracle, mirroring the
+survey above: VQAScore-style alignment (Claude vision judge), text-embedding cosine (local feature
+vector or optional CLIP), caption backcheck (TIT-Score-style), and image-embedding cosine for
+continuity (local layered embedding or optional CLIP/DINOv2). The `quality-report.json` aggregates
+these into a status and `next_actions`, but every number remains traceable to its source signal.
+
+### Honest scope versus Nano Banana
+
+[Gemini 2.5 Flash Image / "Nano Banana"](https://developers.googleblog.com/en/introducing-gemini-2-5-flash-image/)
+is a learned diffusion/transformer model. Its headline strengths are photoreal synthesis,
+conversational iterative editing, character consistency across edits, targeted natural-language
+local edits, and multi-image fusion. A code-only generator that renders from a Claude-authored scene
+representation can credibly pursue the *editing and verification* half of that list — iterative
+targeted edits to the scene plan, continuity across edits measured by the image embedding, crisp
+in-image text (vector/raster text is actually sharper than diffusion glyphs), and multi-element
+composition. It cannot reach photoreal synthesis, because there is no learned image prior. The
+project's value is the disciplined, fully auditable, model-in-the-loop refinement process, not
+pixel-level photorealism.

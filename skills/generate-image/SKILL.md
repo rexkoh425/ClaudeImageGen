@@ -7,6 +7,55 @@ description: Generate a local PNG from a text prompt, optionally using a referen
 
 Use this skill when the user asks Claude Code to generate an image from a prompt in the current folder, especially when they mention local generation, iterative refinement, reference images, initial generated images, cosine similarity, caption backchecking, optional CLIP/BLIP scoring, or RGB pixel export.
 
+## Vision-in-the-loop refinement (the core loop)
+
+This tool has no external image API. Claude Code itself is the generator (it authors the
+scene plan) and, crucially, the judge. The strongest signal is Claude opening the rendered
+PNG with its own vision and scoring how close it is to the prompt — the LMM-as-evaluator /
+VQAScore idea, run locally with no API. The canonical loop is:
+
+1. Author `scene-plan.json` and run `generate` (see Workflow below).
+2. **Open `image.png` with Claude's own vision** and judge it against the prompt. Do not rely
+   only on the numeric scores; actually look at the image.
+3. Write a `critique.json` capturing that judgement (schema below).
+4. Run `refine --critique critique.json`. The critique's `edits` are applied to the scene
+   plan automatically, the judgement is logged to `metadata.json` under `visual_critique`, it
+   becomes a weighted `visual_judgement` check in `quality-report.json`, and its
+   `missing`/`wrong`/`extra` become `Judge:` entries in `next_actions`.
+5. Re-open the new `image.png`, and read `initial_similarity_details.image_embedding_cosine_score`
+   (image-to-image embedding cosine, 0-1) to confirm the edit stayed continuous with the parent
+   while moving toward the target. Repeat until `verdict` is `accept` and closeness is high.
+
+`critique.json` schema (all fields optional except `closeness_score`):
+
+```json
+{
+  "closeness_score": 0.42,
+  "verdict": "revise",
+  "summary": "Sun and ocean read well, but there are no clouds and contrast is flat.",
+  "present": ["sun", "ocean"],
+  "missing": ["clouds"],
+  "wrong": ["sun reads too small"],
+  "extra": ["unrequested red blob lower-left"],
+  "edits": [
+    { "action": "add_object", "type": "cloud", "x": 0.6, "y": 0.2, "size": 0.14, "color": "#fff1dd" },
+    { "action": "add_cloud", "color": "#fff1dd" },
+    { "action": "resize_object", "type": "sun", "size": 0.2 },
+    { "action": "recolor_object", "type": "ocean", "color": "#1d5fa8" },
+    { "action": "move_object", "type": "sun", "x": 0.28, "y": 0.24 },
+    { "action": "remove_object", "type": "robot" },
+    { "action": "adjust_style", "field": "contrast", "delta": 0.15 },
+    { "action": "set_style", "field": "saturation", "value": 0.5 },
+    { "action": "set_palette", "colors": ["#102040", "#ff5533", "#286fc4"] }
+  ]
+}
+```
+
+Edit actions map to scene-plan JSON changes: `add_object`, `remove_object`, `recolor_object`,
+`move_object`, `resize_object`, `set_opacity`, `set_style`, `adjust_style`, `set_palette`,
+`add_element`, `add_cloud`. Unknown actions are skipped, not fatal, so Claude can also just
+rewrite `scene-plan.json` directly and pass it with `--scene-plan` when a large change is needed.
+
 ## Workflow
 
 1. Confirm the prompt is present. If it is missing, ask for it.

@@ -1,0 +1,354 @@
+"""Claude-vision critique: the model-in-the-loop judgement signal.
+
+After Claude Code renders an image, it opens ``image.png`` with its own vision and
+writes a structured critique (a small JSON file). This is the project's primary
+verification signal, mirroring the 2025 "LMM-as-evaluator" / VQAScore findings that a
+capable multimodal model judges prompt alignment better than CLIPScore alone — but with
+no external API: the judge is Claude Code itself.
+
+A critique captures:
+
+* ``closeness_score`` (0-1): holistic judgement of how well the image matches the prompt.
+* ``verdict``: ``accept`` or ``revise``.
+* ``present`` / ``missing`` / ``wrong`` / ``extra``: requested elements and problems.
+* ``edits``: optional concrete scene-plan edits to apply automatically.
+* ``summary`` / ``notes``: natural-language rationale.
+
+The module parses/validates the critique, produces a normalized signal for metadata and
+the quality report, and can apply the structured edits to a scene-plan JSON dict. Edits
+operate on the raw JSON dict (scene plans are authored as JSON), which keeps the apply
+path simple and robust; unknown edit actions are skipped, never fatal.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Any
+
+ACCEPT = "accept"
+REVISE = "revise"
+
+_KNOWN_ACTIONS = {
+    "add_object",
+    "remove_object",
+    "recolor_object",
+    "move_object",
+    "resize_object",
+    "set_opacity",
+    "set_style",
+    "adjust_style",
+    "set_palette",
+    "add_element",
+    "add_cloud",
+}
+
+
+@dataclass(frozen=True)
+class VisualCritique:
+    closeness_score: float
+    verdict: str
+    summary: str
+    present: tuple[str, ...]
+    missing: tuple[str, ...]
+    wrong: tuple[str, ...]
+    extra: tuple[str, ...]
+    edits: tuple[dict[str, Any], ...]
+    notes: str
+
+
+def parse_critique(source: Path | str | dict[str, Any]) -> VisualCritique:
+    """Parse a Claude-authored critique from a path, JSON string, or dict."""
+    data = _load(source)
+    if not isinstance(data, dict):
+        raise ValueError("critique must be a JSON object")
+
+    closeness = _clamp01(_to_float(data.get("closeness_score", data.get("score", 0.0)), 0.0))
+    verdict = str(data.get("verdict", "")).strip().lower()
+    if verdict not in {ACCEPT, REVISE}:
+        verdict = ACCEPT if closeness >= 0.8 else REVISE
+
+    return VisualCritique(
+        closeness_score=closeness,
+        verdict=verdict,
+        summary=str(data.get("summary", "")).strip(),
+        present=_str_tuple(data.get("present")),
+        missing=_str_tuple(data.get("missing")),
+        wrong=_str_tuple(data.get("wrong")),
+        extra=_str_tuple(data.get("extra")),
+        edits=_edit_tuple(data.get("edits")),
+        notes=str(data.get("notes", "")).strip(),
+    )
+
+
+def critique_signal(critique: VisualCritique, applied_edits: list[str] | None = None) -> dict[str, Any]:
+    """Normalized critique record for metadata and the quality report."""
+    return {
+        "judge": "claude-vision",
+        "closeness_score": round(critique.closeness_score, 6),
+        "verdict": critique.verdict,
+        "summary": critique.summary,
+        "present": list(critique.present),
+        "missing": list(critique.missing),
+        "wrong": list(critique.wrong),
+        "extra": list(critique.extra),
+        "requested_edits": [dict(edit) for edit in critique.edits],
+        "applied_edits": list(applied_edits or []),
+        "notes": critique.notes,
+    }
+
+
+def apply_critique_to_plan_dict(
+    plan: dict[str, Any], critique: VisualCritique
+) -> tuple[dict[str, Any], list[str]]:
+    """Apply the critique's structured edits to a scene-plan dict (mutates a copy)."""
+    revised: dict[str, Any] = json.loads(json.dumps(plan))  # deep copy
+    actions: list[str] = []
+    for edit in critique.edits:
+        action = str(edit.get("action", "")).strip().lower()
+        if action not in _KNOWN_ACTIONS:
+            actions.append(f"skipped unknown edit action '{action or '(missing)'}'")
+            continue
+        handler = _EDIT_HANDLERS[action]
+        message = handler(revised, edit)
+        if message:
+            actions.append(message)
+    return revised, actions
+
+
+def apply_critique_to_plan_file(
+    in_path: Path, out_path: Path, critique: VisualCritique
+) -> list[str]:
+    """Read a scene-plan file, apply critique edits, write the revised plan."""
+    plan = json.loads(Path(in_path).read_text(encoding="utf-8-sig"))
+    if not isinstance(plan, dict):
+        raise ValueError("scene plan must be a JSON object")
+    revised, actions = apply_critique_to_plan_dict(plan, critique)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_path).write_text(json.dumps(revised, indent=2), encoding="utf-8")
+    return actions
+
+
+# --- edit handlers -------------------------------------------------------------------
+
+
+def _object_type(item: object) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("type", item.get("kind", ""))).strip().lower()
+
+
+def _list_field(plan: dict[str, Any], key: str) -> list[Any]:
+    value = plan.get(key)
+    if isinstance(value, list):
+        return value
+    plan[key] = []
+    return plan[key]
+
+
+def _edit_add_object(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    kind = str(edit.get("type", edit.get("kind", "shape"))).strip().lower() or "shape"
+    objects = _list_field(plan, "objects")
+    new_object: dict[str, Any] = {
+        "type": kind,
+        "label": str(edit.get("label", f"critique-added {kind}")),
+        "x": _clamp01(_to_float(edit.get("x", 0.5), 0.5)),
+        "y": _clamp01(_to_float(edit.get("y", 0.5), 0.5)),
+        "size": _clamp01(_to_float(edit.get("size", 0.18), 0.18)),
+        "opacity": _clamp01(_to_float(edit.get("opacity", 1.0), 1.0)),
+    }
+    if edit.get("color") is not None:
+        new_object["color"] = str(edit["color"])
+    objects.append(new_object)
+    return f"added object '{kind}'"
+
+
+def _edit_remove_object(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    target = str(edit.get("type", edit.get("kind", ""))).strip().lower()
+    if not target:
+        return "skipped remove_object without type"
+    objects = _list_field(plan, "objects")
+    kept = [item for item in objects if _object_type(item) != target]
+    removed = len(objects) - len(kept)
+    plan["objects"] = kept
+    return f"removed {removed} '{target}' object(s)" if removed else f"no '{target}' object to remove"
+
+
+def _edit_recolor_object(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    target = str(edit.get("type", edit.get("kind", ""))).strip().lower()
+    color = edit.get("color")
+    if not target or color is None:
+        return "skipped recolor_object without type/color"
+    count = 0
+    for item in _list_field(plan, "objects"):
+        if _object_type(item) == target:
+            item["color"] = str(color)
+            count += 1
+    return f"recolored {count} '{target}' object(s) to {color}"
+
+
+def _edit_move_object(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    target = str(edit.get("type", edit.get("kind", ""))).strip().lower()
+    if not target:
+        return "skipped move_object without type"
+    count = 0
+    for item in _list_field(plan, "objects"):
+        if _object_type(item) == target:
+            if edit.get("x") is not None:
+                item["x"] = _clamp01(_to_float(edit.get("x"), 0.5))
+            if edit.get("y") is not None:
+                item["y"] = _clamp01(_to_float(edit.get("y"), 0.5))
+            count += 1
+    return f"moved {count} '{target}' object(s)"
+
+
+def _edit_resize_object(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    target = str(edit.get("type", edit.get("kind", ""))).strip().lower()
+    if not target or edit.get("size") is None:
+        return "skipped resize_object without type/size"
+    count = 0
+    for item in _list_field(plan, "objects"):
+        if _object_type(item) == target:
+            item["size"] = _clamp01(_to_float(edit.get("size"), 0.18))
+            count += 1
+    return f"resized {count} '{target}' object(s)"
+
+
+def _edit_set_opacity(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    target = str(edit.get("type", edit.get("kind", ""))).strip().lower()
+    if not target or edit.get("opacity") is None:
+        return "skipped set_opacity without type/opacity"
+    count = 0
+    for item in _list_field(plan, "objects"):
+        if _object_type(item) == target:
+            item["opacity"] = _clamp01(_to_float(edit.get("opacity"), 1.0))
+            count += 1
+    return f"set opacity on {count} '{target}' object(s)"
+
+
+def _edit_set_style(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    field = str(edit.get("field", "")).strip().lower()
+    if not field or edit.get("value") is None:
+        return "skipped set_style without field/value"
+    style = plan.get("style")
+    if not isinstance(style, dict):
+        style = {}
+        plan["style"] = style
+    style[field] = _clamp01(_to_float(edit.get("value"), 0.0))
+    return f"set style {field}={style[field]:.3f}"
+
+
+def _edit_adjust_style(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    field = str(edit.get("field", "")).strip().lower()
+    if not field or edit.get("delta") is None:
+        return "skipped adjust_style without field/delta"
+    style = plan.get("style")
+    if not isinstance(style, dict):
+        style = {}
+        plan["style"] = style
+    current = _to_float(style.get(field, 0.0), 0.0)
+    style[field] = _clamp01(current + _to_float(edit.get("delta"), 0.0))
+    return f"adjusted style {field} to {style[field]:.3f}"
+
+
+def _edit_set_palette(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    colors = edit.get("colors")
+    if not isinstance(colors, list) or not colors:
+        return "skipped set_palette without colors"
+    plan["palette"] = [str(color) for color in colors]
+    return f"set palette to {len(plan['palette'])} colors"
+
+
+def _edit_add_element(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    element = edit.get("element")
+    if not isinstance(element, dict):
+        return "skipped add_element without element object"
+    _list_field(plan, "elements").append(dict(element))
+    return f"added element '{str(element.get('type', 'shape'))}'"
+
+
+def _edit_add_cloud(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    cloud = edit.get("cloud")
+    if isinstance(cloud, dict):
+        _list_field(plan, "clouds").append(dict(cloud))
+        return "added cloud bank"
+    _list_field(plan, "clouds").append(
+        {
+            "type": "cumulus",
+            "label": "critique-added cloud bank",
+            "region": [0.08, 0.08, 0.94, 0.34],
+            "color": str(edit.get("color", "#fff1dd")),
+            "shadow": "#788ca8",
+            "opacity": _clamp01(_to_float(edit.get("opacity", 0.4), 0.4)),
+            "blur": 0.026,
+            "count": 4,
+            "lobes": 5,
+            "scale": 0.12,
+            "blend": "screen",
+            "seed": 113,
+            "z": 6,
+        }
+    )
+    return "added default cloud bank"
+
+
+_EDIT_HANDLERS = {
+    "add_object": _edit_add_object,
+    "remove_object": _edit_remove_object,
+    "recolor_object": _edit_recolor_object,
+    "move_object": _edit_move_object,
+    "resize_object": _edit_resize_object,
+    "set_opacity": _edit_set_opacity,
+    "set_style": _edit_set_style,
+    "adjust_style": _edit_adjust_style,
+    "set_palette": _edit_set_palette,
+    "add_element": _edit_add_element,
+    "add_cloud": _edit_add_cloud,
+}
+
+
+# --- parsing helpers -----------------------------------------------------------------
+
+
+def _load(source: Path | str | dict[str, Any]) -> Any:
+    if isinstance(source, dict):
+        return source
+    text = source
+    if isinstance(source, Path) or (isinstance(source, str) and _looks_like_path(source)):
+        path = Path(source)
+        if path.exists():
+            text = path.read_text(encoding="utf-8-sig")
+        elif isinstance(source, Path):
+            raise FileNotFoundError(f"Critique file not found: {source}")
+    return json.loads(text)
+
+
+def _looks_like_path(value: str) -> bool:
+    stripped = value.strip()
+    return not stripped.startswith("{") and (stripped.endswith(".json") or "/" in stripped or "\\" in stripped)
+
+
+def _str_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, str) and value.strip():
+        return (value.strip(),)
+    return ()
+
+
+def _edit_tuple(value: object) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(dict(item) for item in value if isinstance(item, dict))
+
+
+def _to_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
