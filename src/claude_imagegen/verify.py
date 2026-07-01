@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from PIL import Image, ImageStat
+
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .refine import RefineOptions, refine_image
 from .render import cap_dimensions
@@ -134,6 +136,8 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
         "strong_continuity_backend": options.strong_continuity_backend if options.strong_model else None,
         "strong_sizes": [f"{width}x{height}" for width, height in _strong_verification_sizes(options)] if options.strong_model else None,
         "caption_similarity_backend": options.caption_similarity_backend if options.strong_model else None,
+        "device_summary": _device_summary(cases),
+        "image_summary": _image_summary(cases),
         "cases": cases,
     }
     report_path = output_dir / "verification-report.json"
@@ -301,13 +305,18 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
     candidates_ok = metadata.get("candidate_count", 0) == 0 or bool(metadata.get("candidate_index"))
     refine_ok = case_type != "refine" or metadata.get("parent_candidate_selection") == "auto"
     complex_ok = case_type != "complex-plan" or _complex_scene_plan_ok(metadata)
-    status = "pass" if files_ok and size_ok and candidates_ok and refine_ok and complex_ok else "fail"
+    image_stats = _image_stats(result.image_path)
+    image_nonblank = bool(image_stats.get("nonblank"))
+    status = "pass" if files_ok and size_ok and candidates_ok and refine_ok and complex_ok and image_nonblank else "fail"
     return {
         "type": case_type,
         "status": status,
         "size": f"{requested_size[0]}x{requested_size[1]}",
         "output_dir": str(result.metadata_path.parent),
         "image": str(result.image_path),
+        "image_nonblank": image_nonblank,
+        "image_variance_sum": image_stats.get("variance_sum"),
+        "image_stats": image_stats,
         "metadata": str(result.metadata_path),
         "quality_report": str(metadata.get("quality_report")),
         "critique_request": str(metadata.get("critique_request") or critique_request_path),
@@ -338,6 +347,104 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "scene_plan_atmosphere_used": metadata.get("scene_plan_atmosphere_used"),
         "scene_plan_focus_used": metadata.get("scene_plan_focus_used"),
     }
+
+
+def _device_summary(cases: list[dict[str, object]]) -> dict[str, object]:
+    role_fields = {
+        "similarity": "effective_similarity_device",
+        "continuity": "effective_continuity_device",
+        "caption": "effective_caption_device",
+        "caption_similarity": "effective_caption_similarity_device",
+    }
+    backend_fields = {
+        "similarity_backends": "similarity_backend",
+        "continuity_backends": "continuity_backend",
+        "caption_backends": "caption_backend",
+        "caption_similarity_backends": "caption_similarity_backend",
+    }
+    role_devices: dict[str, dict[str, int]] = {role: {} for role in role_fields}
+    all_devices: set[str] = set()
+    cpu_case_count = 0
+    cuda_case_count = 0
+
+    for case in cases:
+        case_devices: set[str] = set()
+        for role, field in role_fields.items():
+            device = _normalized_text(case.get(field))
+            if not device:
+                continue
+            role_devices[role][device] = role_devices[role].get(device, 0) + 1
+            all_devices.add(device)
+            case_devices.add(device)
+        if "cpu" in case_devices:
+            cpu_case_count += 1
+        if "cuda" in case_devices:
+            cuda_case_count += 1
+
+    summary: dict[str, object] = {
+        "case_count": len(cases),
+        "devices": sorted(all_devices),
+        "cpu_case_count": cpu_case_count,
+        "cuda_case_count": cuda_case_count,
+        "role_devices": role_devices,
+    }
+    for summary_field, case_field in backend_fields.items():
+        summary[summary_field] = sorted(
+            {
+                value
+                for case in cases
+                if (value := _normalized_text(case.get(case_field)))
+            }
+        )
+    return summary
+
+
+def _image_summary(cases: list[dict[str, object]]) -> dict[str, object]:
+    stats = [case.get("image_stats") for case in cases if isinstance(case.get("image_stats"), dict)]
+    blank_outputs = [str(case.get("output_dir")) for case in cases if case.get("image_nonblank") is False]
+    variance_values = [
+        float(stat.get("variance_sum"))
+        for stat in stats
+        if stat.get("variance_sum") is not None
+    ]
+    return {
+        "case_count": len(cases),
+        "nonblank_cases": sum(1 for case in cases if case.get("image_nonblank") is True),
+        "blank_cases": len(blank_outputs),
+        "blank_outputs": blank_outputs,
+        "min_variance_sum": round(min(variance_values), 6) if variance_values else None,
+    }
+
+
+def _image_stats(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {
+            "nonblank": False,
+            "variance_sum": 0.0,
+            "mean_rgb": None,
+            "extrema_rgb": None,
+            "error": "image file missing",
+        }
+    try:
+        with Image.open(path) as image:
+            rgb = image.convert("RGB")
+            stat = ImageStat.Stat(rgb)
+            variance_sum = round(sum(float(value) for value in stat.var), 6)
+            extrema = rgb.getextrema()
+            return {
+                "nonblank": variance_sum > 0.0 and any(low != high for low, high in extrema),
+                "variance_sum": variance_sum,
+                "mean_rgb": [round(float(value), 3) for value in stat.mean],
+                "extrema_rgb": [[int(low), int(high)] for low, high in extrema],
+            }
+    except Exception as exc:
+        return {
+            "nonblank": False,
+            "variance_sum": 0.0,
+            "mean_rgb": None,
+            "extrema_rgb": None,
+            "error": str(exc),
+        }
 
 
 def _metadata_size(metadata: dict[str, object]) -> tuple[int, int]:
@@ -373,6 +480,10 @@ def _int_metadata(metadata: dict[str, object], field: str) -> int:
         return int(metadata.get(field, 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _normalized_text(value: object) -> str:
+    return str(value).strip().lower() if value is not None and str(value).strip() else ""
 
 
 def _complex_scene_plan() -> dict[str, object]:

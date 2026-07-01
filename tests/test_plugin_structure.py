@@ -98,6 +98,9 @@ def test_claude_skill_and_executable_are_present():
     assert "--caption-backend" in skill_text
     assert "caption_similarity_score" in skill_text
     assert "aesthetic_score" in skill_text
+    assert "device_summary" in skill_text
+    assert "image_summary" in skill_text
+    assert "nonblank" in skill_text
     assert executable.exists()
     executable_text = executable.read_text(encoding="utf-8")
     assert "claude_imagegen.cli" in executable_text
@@ -128,6 +131,9 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "multiscale_luminance_ssim_score" in readme
     assert "weakest_continuity_region" in readme
     assert "aesthetic_score" in readme
+    assert "device_summary" in readme
+    assert "image_summary" in readme
+    assert "nonblank" in readme
     assert "--strong-size" in readme
     assert "complex planned scene" in readme
     assert "claude plugin marketplace add rexkoh425/ClaudeImageGen" in readme

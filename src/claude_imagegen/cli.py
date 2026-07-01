@@ -413,6 +413,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Verification {report['status']} ({report['report_path']})")
         print(f"Cases {len(report['cases'])}")
         print(f"Strong model {report['strong_model']}")
+        device_summary = report.get("device_summary")
+        if isinstance(device_summary, dict):
+            devices = ", ".join(str(device) for device in device_summary.get("devices", [])) or "none"
+            print(
+                f"Devices {devices} "
+                f"(cpu cases {device_summary.get('cpu_case_count', 0)}, "
+                f"cuda cases {device_summary.get('cuda_case_count', 0)})"
+            )
+        image_summary = report.get("image_summary")
+        if isinstance(image_summary, dict):
+            print(
+                f"Images nonblank {image_summary.get('nonblank_cases', 0)}/"
+                f"{image_summary.get('case_count', 0)} "
+                f"(blank {image_summary.get('blank_cases', 0)}, "
+                f"min variance {image_summary.get('min_variance_sum')})"
+            )
         for case in report["cases"]:
             print(f"Case {case['type']} {case['status']} {case['size']} {case.get('quality_status', 'none')} {case['output_dir']}")
         return 0 if report["status"] == "pass" else 1

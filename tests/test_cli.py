@@ -818,6 +818,8 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
 
     report_path = output_dir / "verification-report.json"
     assert "Verification" in completed.stdout
+    assert "Devices" in completed.stdout
+    assert "Images nonblank" in completed.stdout
     assert str(report_path) in completed.stdout
     assert report_path.exists()
 
@@ -837,6 +839,12 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
     assert complex_case["scene_plan_focus_used"] is True
     assert any(case["type"] == "refine" for case in report["cases"])
     assert report["strong_model"] == "not-requested"
+    assert report["device_summary"]["devices"] == ["cpu"]
+    assert report["device_summary"]["cpu_case_count"] == len(report["cases"])
+    assert report["device_summary"]["cuda_case_count"] == 0
+    assert report["image_summary"]["case_count"] == len(report["cases"])
+    assert report["image_summary"]["nonblank_cases"] == len(report["cases"])
+    assert report["image_summary"]["blank_cases"] == 0
 
     for case in report["cases"]:
         case_dir = Path(case["output_dir"])
@@ -848,6 +856,9 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
         assert case["critique_request"] == str(case_dir / "critique-request.json")
         assert case["caption_backend"] == metadata["caption_backend"]
         assert case["caption_model"] == metadata["caption_model"]
+        assert case["image_nonblank"] is True
+        assert case["image_variance_sum"] > 0
+        assert case["image_stats"]["nonblank"] is True
         if case["type"] == "generate":
             assert f"{metadata['width']}x{metadata['height']}" == case["size"]
             assert (case_dir / "candidates.json").exists()
@@ -870,6 +881,7 @@ def test_verification_runs_strong_cases_for_explicit_strong_sizes(tmp_path: Path
     def fake_result(output_dir: Path, *, width: int, height: int, options: object, refined: bool = False):
         output_dir.mkdir(parents=True, exist_ok=True)
         image = Image.new("RGB", (width, height), (32, 64, 128))
+        image.putpixel((0, 0), (96, 128, 196))
         image_path = output_dir / "image.png"
         metadata_path = output_dir / "metadata.json"
         progress_path = output_dir / "progress.csv"
@@ -973,3 +985,58 @@ def test_verification_runs_strong_cases_for_explicit_strong_sizes(tmp_path: Path
     strong_cases = [case for case in report["cases"] if case["type"].startswith("strong")]
     assert all(case["similarity_backend"] == "transformers-siglip" for case in strong_cases)
     assert all(case["effective_similarity_device"] == "cuda" for case in strong_cases)
+    assert report["device_summary"]["devices"] == ["cpu", "cuda"]
+    assert report["device_summary"]["cuda_case_count"] == len(strong_cases)
+    assert report["device_summary"]["cpu_case_count"] == 3
+    assert report["device_summary"]["role_devices"]["similarity"]["cuda"] == len(strong_cases)
+    assert "transformers-siglip" in report["device_summary"]["similarity_backends"]
+    assert "transformers-dinov2" in report["device_summary"]["continuity_backends"]
+    assert report["image_summary"]["nonblank_cases"] == len(report["cases"])
+    assert report["image_summary"]["blank_cases"] == 0
+
+
+def test_verification_case_report_fails_blank_images(tmp_path: Path):
+    output_dir = tmp_path / "blank-case"
+    output_dir.mkdir()
+    image_path = output_dir / "image.png"
+    metadata_path = output_dir / "metadata.json"
+    progress_path = output_dir / "progress.csv"
+    quality_path = output_dir / "quality-report.json"
+    critique_path = output_dir / "critique-request.json"
+
+    Image.new("RGB", (16, 12), (32, 64, 128)).save(image_path)
+    progress_path.write_text("iteration,total_score\n1,0.5\n", encoding="utf-8")
+    quality_path.write_text("{}", encoding="utf-8")
+    critique_path.write_text("{}", encoding="utf-8")
+    metadata = {
+        "width": 16,
+        "height": 12,
+        "quality_report": str(quality_path),
+        "candidate_count": 0,
+        "caption_backend": "local",
+        "caption_model": None,
+        "similarity_backend": "local",
+        "continuity_backend": "local",
+        "caption_similarity_backend": "local",
+        "effective_similarity_device": "cpu",
+        "effective_continuity_device": "cpu",
+        "effective_caption_device": "cpu",
+        "effective_caption_similarity_device": "cpu",
+    }
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    case = verify_module._case_report(
+        "generate",
+        SimpleNamespace(
+            metadata=metadata,
+            image_path=image_path,
+            metadata_path=metadata_path,
+            progress_path=progress_path,
+        ),
+        requested_size=(16, 12),
+    )
+
+    assert case["status"] == "fail"
+    assert case["image_nonblank"] is False
+    assert case["image_variance_sum"] == 0
+    assert case["image_stats"]["nonblank"] is False
