@@ -141,6 +141,7 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     pixels_path = output_dir / "pixels.csv"
     candidates_path = output_dir / "candidates.json"
     contact_sheet_path = output_dir / "candidates" / "contact-sheet.png"
+    critique_request_path = output_dir / "critique-request.json"
 
     assert image_path.exists()
     assert metadata_path.exists()
@@ -149,9 +150,11 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert pixels_path.exists()
     assert candidates_path.exists()
     assert contact_sheet_path.exists()
+    assert critique_request_path.exists()
     assert "image.png" in completed.stdout
     assert "Caption" in completed.stdout
     assert "Quality" in completed.stdout
+    assert "Critique request" in completed.stdout
 
     with Image.open(image_path) as image:
         assert image.mode == "RGB"
@@ -171,12 +174,20 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert metadata["candidate_index"] == str(candidates_path)
     assert metadata["candidate_contact_sheet"] == str(contact_sheet_path)
     assert metadata["quality_report"] == str(quality_path)
+    assert metadata["critique_request"] == str(critique_request_path)
     assert metadata["quality_status"] in {"pass", "review", "revise"}
     assert 0.0 <= metadata["quality_score"] <= 1.0
 
     quality_report = json.loads(quality_path.read_text(encoding="utf-8"))
     assert quality_report["status"] == metadata["quality_status"]
     assert quality_report["quality_score"] == metadata["quality_score"]
+
+    critique_request = json.loads(critique_request_path.read_text(encoding="utf-8"))
+    assert critique_request["image"] == str(image_path)
+    assert critique_request["metadata"] == str(metadata_path)
+    assert critique_request["quality_report"] == str(quality_path)
+    assert critique_request["expected_response"]["verdict"] == "revise"
+    assert "add_cloud" in critique_request["allowed_edit_actions"]
 
     with progress_path.open(newline="", encoding="utf-8") as handle:
         progress_rows = list(csv.DictReader(handle))
@@ -322,6 +333,7 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     )
 
     assert "Refined" in completed.stdout
+    assert "Critique request" in completed.stdout
     metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
     quality_report = json.loads((refined_dir / "quality-report.json").read_text(encoding="utf-8"))
     assert metadata["refined_from"] == str(base_dir)
@@ -332,6 +344,11 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     assert metadata["refinement_lineage_depth"] == 1
     assert metadata["scene_plan_refine_actions"]
     assert metadata["quality_report"] == str(refined_dir / "quality-report.json")
+    assert metadata["critique_request"] == str(refined_dir / "critique-request.json")
+    critique_request = json.loads((refined_dir / "critique-request.json").read_text(encoding="utf-8"))
+    assert critique_request["image"] == str(refined_dir / "image.png")
+    assert critique_request["metadata"] == str(refined_dir / "metadata.json")
+    assert critique_request["quality_report"] == str(refined_dir / "quality-report.json")
     assert "continuity" in {check["name"] for check in quality_report["checks"]}
     assert quality_report["continuity_score"] == metadata["initial_similarity_score"]
 
@@ -649,7 +666,9 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
         assert (case_dir / "image.png").exists()
         assert (case_dir / "metadata.json").exists()
         assert (case_dir / "quality-report.json").exists()
+        assert (case_dir / "critique-request.json").exists()
         metadata = json.loads((case_dir / "metadata.json").read_text(encoding="utf-8"))
+        assert case["critique_request"] == str(case_dir / "critique-request.json")
         assert case["caption_backend"] == metadata["caption_backend"]
         assert case["caption_model"] == metadata["caption_model"]
         if case["type"] == "generate":

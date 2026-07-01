@@ -227,6 +227,7 @@ def _default_continuity_model(continuity_backend: str) -> str | None:
 def _case_report(case_type: str, result: GenerateResult, *, requested_size: tuple[int, int]) -> dict[str, object]:
     metadata = result.metadata
     width, height = _metadata_size(metadata)
+    critique_request_path = result.metadata_path.parent / "critique-request.json"
     files_ok = all(
         path.exists()
         for path in (
@@ -234,6 +235,7 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
             result.metadata_path,
             result.progress_path,
             result.metadata_path.parent / "quality-report.json",
+            critique_request_path,
         )
     )
     size_ok = (width, height) == requested_size
@@ -248,6 +250,7 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "image": str(result.image_path),
         "metadata": str(result.metadata_path),
         "quality_report": str(metadata.get("quality_report")),
+        "critique_request": str(metadata.get("critique_request") or critique_request_path),
         "quality_status": metadata.get("quality_status"),
         "quality_score": metadata.get("quality_score"),
         "total_score": metadata.get("total_score"),

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from .candidates import annotate_candidate_selection, select_recommended_candidate
-from .critique import apply_critique_to_plan_dict, critique_signal, parse_critique
+from .critique import apply_critique_to_plan_dict, critique_signal, parse_critique, write_critique_request
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .prompt import parse_prompt
 from .quality import apply_quality_report
@@ -115,6 +115,12 @@ def refine_image(options: RefineOptions) -> GenerateResult:
     if critique is not None:
         result.metadata["visual_critique"] = critique_signal(critique, applied_edits=critique_actions)
     apply_quality_report(options.output_dir, result.metadata)
+    write_critique_request(
+        options.output_dir,
+        image_path=result.image_path,
+        metadata_path=result.metadata_path,
+        metadata=result.metadata,
+    )
     result.metadata_path.write_text(json.dumps(result.metadata, indent=2), encoding="utf-8")
     return result
 

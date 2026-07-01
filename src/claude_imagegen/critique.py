@@ -58,6 +58,76 @@ class VisualCritique:
     notes: str
 
 
+def known_edit_actions() -> list[str]:
+    """Return the supported structured edit actions for Claude-vision critiques."""
+    return sorted(_KNOWN_ACTIONS)
+
+
+def write_critique_request(
+    output_dir: Path,
+    *,
+    image_path: Path,
+    metadata_path: Path,
+    metadata: dict[str, Any],
+) -> Path:
+    """Write the JSON request Claude Code should fill after visually inspecting image.png."""
+    request_path = output_dir / "critique-request.json"
+    request = build_critique_request(
+        image_path=image_path,
+        metadata_path=metadata_path,
+        metadata=metadata,
+    )
+    request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
+    metadata["critique_request"] = str(request_path)
+    return request_path
+
+
+def build_critique_request(
+    *,
+    image_path: Path,
+    metadata_path: Path,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a stable Claude-vision judge request from run metadata."""
+    quality_status = str(metadata.get("quality_status") or "")
+    suggested_verdict = ACCEPT if quality_status == "pass" else REVISE
+    return {
+        "judge": "claude-vision",
+        "instructions": (
+            "Open image.png, compare it against the prompt and metadata, then write only JSON "
+            "matching expected_response. Use edits only from allowed_edit_actions so refine "
+            "--critique can apply them automatically."
+        ),
+        "image": str(image_path),
+        "metadata": str(metadata_path),
+        "quality_report": _str_or_none(metadata.get("quality_report")),
+        "output_dir": str(metadata_path.parent),
+        "prompt": str(metadata.get("prompt") or ""),
+        "normalized_prompt": str(metadata.get("normalized_prompt") or ""),
+        "width": metadata.get("width"),
+        "height": metadata.get("height"),
+        "total_score": metadata.get("total_score"),
+        "quality_status": metadata.get("quality_status"),
+        "quality_score": metadata.get("quality_score"),
+        "caption": metadata.get("image_caption"),
+        "caption_similarity_score": metadata.get("caption_similarity_score"),
+        "initial_similarity_score": metadata.get("initial_similarity_score"),
+        "revision_hints": _str_list(metadata.get("revision_hints")),
+        "allowed_edit_actions": known_edit_actions(),
+        "expected_response": {
+            "closeness_score": None,
+            "verdict": suggested_verdict,
+            "summary": "",
+            "present": [],
+            "missing": [],
+            "wrong": [],
+            "extra": [],
+            "edits": [],
+            "notes": "",
+        },
+    }
+
+
 def parse_critique(source: Path | str | dict[str, Any]) -> VisualCritique:
     """Parse a Claude-authored critique from a path, JSON string, or dict."""
     data = _load(source)
@@ -335,6 +405,19 @@ def _str_tuple(value: object) -> tuple[str, ...]:
     if isinstance(value, str) and value.strip():
         return (value.strip(),)
     return ()
+
+
+def _str_list(value: object) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if str(item)]
+    return []
+
+
+def _str_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
 
 
 def _edit_tuple(value: object) -> tuple[dict[str, Any], ...]:

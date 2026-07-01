@@ -294,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Score {result.metadata['total_score']}")
         print(f"Quality {result.metadata['quality_status']} {result.metadata['quality_score']} ({result.metadata['quality_report']})")
         print(f"Caption {result.metadata['image_caption']}")
+        if result.metadata.get("critique_request"):
+            print(f"Critique request {result.metadata['critique_request']}")
         if result.candidates_path:
             print(f"Candidates {result.candidates_path}")
             print(f"Contact sheet {result.metadata['candidate_contact_sheet']}")
@@ -336,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Score {result.metadata['total_score']}")
         print(f"Quality {result.metadata['quality_status']} {result.metadata['quality_score']} ({result.metadata['quality_report']})")
         print(f"Caption {result.metadata['image_caption']}")
+        if result.metadata.get("critique_request"):
+            print(f"Critique request {result.metadata['critique_request']}")
         if result.metadata.get("parent_candidate_rank"):
             print(f"Candidate rank {result.metadata['parent_candidate_rank']}")
         if result.metadata.get("parent_candidate_selection"):

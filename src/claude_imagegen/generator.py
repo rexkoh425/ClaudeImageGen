@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw
 
 from .candidates import annotate_candidate_selection, select_recommended_candidate
 from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnostics
+from .critique import write_critique_request
 from .palette import COLOR_RGB, RGB, extract_reference_palette
 from .pixels import export_pixel_csv
 from .prompt import parse_prompt
@@ -315,6 +316,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "engine": "claude-planned-cpu-renderer-v1" if metadata_scene_plan else "cpu-surrogate-iterative-v0",
     }
     apply_quality_report(output_dir, metadata)
+    write_critique_request(output_dir, image_path=image_path, metadata_path=metadata_path, metadata=metadata)
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     if pixels_path:

@@ -7,7 +7,9 @@ import pytest
 from claude_imagegen.critique import (
     apply_critique_to_plan_dict,
     critique_signal,
+    known_edit_actions,
     parse_critique,
+    write_critique_request,
 )
 
 
@@ -118,6 +120,49 @@ def test_critique_signal_shape() -> None:
     assert signal["closeness_score"] == 0.7
     assert signal["missing"] == ["clouds"]
     assert signal["applied_edits"] == ["added object 'cloud'"]
+
+
+def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None:
+    image_path = tmp_path / "image.png"
+    metadata_path = tmp_path / "metadata.json"
+    image_path.write_bytes(b"png")
+    metadata = {
+        "prompt": "red sun over blue ocean with clouds",
+        "normalized_prompt": "red sun over blue ocean with clouds",
+        "width": 320,
+        "height": 192,
+        "total_score": 0.58,
+        "quality_report": str(tmp_path / "quality-report.json"),
+        "quality_status": "revise",
+        "quality_score": 0.44,
+        "revision_hints": ["Add missing clouds."],
+    }
+
+    request_path = write_critique_request(
+        tmp_path,
+        image_path=image_path,
+        metadata_path=metadata_path,
+        metadata=metadata,
+    )
+
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request_path == tmp_path / "critique-request.json"
+    assert metadata["critique_request"] == str(request_path)
+    assert request["judge"] == "claude-vision"
+    assert request["image"] == str(image_path)
+    assert request["metadata"] == str(metadata_path)
+    assert request["quality_report"] == str(tmp_path / "quality-report.json")
+    assert request["prompt"] == "red sun over blue ocean with clouds"
+    assert request["quality_status"] == "revise"
+    assert request["quality_score"] == 0.44
+    assert request["revision_hints"] == ["Add missing clouds."]
+    assert request["expected_response"]["closeness_score"] is None
+    assert request["expected_response"]["verdict"] == "revise"
+    assert request["expected_response"]["present"] == []
+    assert request["expected_response"]["edits"] == []
+    assert "add_cloud" in request["allowed_edit_actions"]
+    assert "resize_object" in request["allowed_edit_actions"]
+    assert known_edit_actions() == sorted(request["allowed_edit_actions"])
 
 
 def test_missing_critique_file_raises() -> None:
