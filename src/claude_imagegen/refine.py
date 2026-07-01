@@ -95,6 +95,7 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             "parent_metadata": str(parent_metadata_path) if parent_metadata_path.exists() else None,
             "parent_prompt": parent_metadata.get("prompt"),
             "parent_total_score": parent_metadata.get("total_score"),
+            "parent_quality_score": parent_metadata.get("quality_score"),
             "parent_similarity_backend": parent_metadata.get("similarity_backend"),
             "parent_caption": parent_metadata.get("image_caption"),
             "parent_caption_similarity_score": parent_metadata.get("caption_similarity_score"),

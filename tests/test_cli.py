@@ -334,6 +334,7 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
 
     assert "Refined" in completed.stdout
     assert "Critique request" in completed.stdout
+    assert "Refinement delta" in completed.stdout
     metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
     quality_report = json.loads((refined_dir / "quality-report.json").read_text(encoding="utf-8"))
     assert metadata["refined_from"] == str(base_dir)
@@ -341,6 +342,7 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     assert metadata["parent_metadata"] == str(base_dir / "metadata.json")
     assert metadata["initial_image"] == str(base_dir / "image.png")
     assert metadata["initial_similarity_score"] is not None
+    assert metadata["parent_quality_score"] is not None
     assert metadata["refinement_lineage_depth"] == 1
     assert metadata["scene_plan_refine_actions"]
     assert metadata["quality_report"] == str(refined_dir / "quality-report.json")
@@ -351,6 +353,18 @@ def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     assert critique_request["quality_report"] == str(refined_dir / "quality-report.json")
     assert "continuity" in {check["name"] for check in quality_report["checks"]}
     assert quality_report["continuity_score"] == metadata["initial_similarity_score"]
+    assert quality_report["refinement_delta"] == metadata["refinement_delta"]
+    assert metadata["refinement_delta"]["parent_total_score"] == metadata["parent_total_score"]
+    assert metadata["refinement_delta"]["current_total_score"] == metadata["total_score"]
+    assert metadata["refinement_delta"]["total_score_delta"] == round(
+        metadata["total_score"] - metadata["parent_total_score"], 6
+    )
+    assert metadata["refinement_delta"]["parent_quality_score"] == metadata["parent_quality_score"]
+    assert metadata["refinement_delta"]["current_quality_score"] == metadata["quality_score"]
+    assert metadata["refinement_delta"]["quality_score_delta"] == round(
+        metadata["quality_score"] - metadata["parent_quality_score"], 6
+    )
+    assert metadata["refinement_delta"]["continuity_score"] == metadata["initial_similarity_score"]
 
 
 def test_cli_refine_records_and_applies_visual_critique(tmp_path: Path):
@@ -694,3 +708,4 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
         if case["type"] == "refine":
             assert metadata["parent_candidate_selection"] == "auto"
             assert metadata["initial_similarity_score"] is not None
+            assert case["refinement_delta"] == metadata["refinement_delta"]

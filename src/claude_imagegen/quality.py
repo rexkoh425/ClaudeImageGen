@@ -11,6 +11,8 @@ def apply_quality_report(output_dir: Path, metadata: dict[str, object]) -> Path:
     metadata["quality_report"] = str(report_path)
     metadata["quality_status"] = report["status"]
     metadata["quality_score"] = report["quality_score"]
+    if report.get("refinement_delta") is not None:
+        metadata["refinement_delta"] = report["refinement_delta"]
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report_path
 
@@ -21,6 +23,7 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
     status = _quality_status(checks, quality_score)
     next_actions = _next_actions(metadata, checks, status)
     continuity_score = _float_or_none(metadata.get("initial_similarity_score"))
+    refinement_delta = _refinement_delta(metadata, quality_score=quality_score)
 
     return {
         "status": status,
@@ -29,6 +32,7 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
         "checks": checks,
         "next_actions": next_actions,
         "continuity_score": continuity_score if continuity_score is not None else None,
+        "refinement_delta": refinement_delta,
         "recommended_candidate_rank": metadata.get("recommended_candidate_rank"),
         "recommended_candidate_score": metadata.get("recommended_candidate_score"),
         "revision_hints": _string_list(metadata.get("revision_hints")),
@@ -208,6 +212,13 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
     if "candidate_recommendation" in failed and metadata.get("candidate_index"):
         actions.append("Inspect candidates/contact-sheet.png before choosing the next refinement parent.")
 
+    total_delta = _delta(metadata.get("total_score"), metadata.get("parent_total_score"))
+    caption_delta = _delta(metadata.get("caption_similarity_score"), metadata.get("parent_caption_similarity_score"))
+    if total_delta is not None and total_delta < -0.03:
+        actions.append("Refinement lowered prompt alignment versus the parent; compare against the parent before continuing.")
+    if caption_delta is not None and caption_delta < -0.05:
+        actions.append("Refinement lowered caption alignment versus the parent; inspect whether requested visual evidence disappeared.")
+
     if not actions:
         if status == "pass":
             actions.append("No automatic revision required; inspect image.png for final visual acceptance.")
@@ -231,6 +242,41 @@ def _caption_alignment_detail(metadata: dict[str, object]) -> str:
     if backend in {"sentence", "transformers-sentence"}:
         return "Backchecked caption against the prompt with sentence-embedding semantic similarity plus object/color diagnostics."
     return "Backchecked caption overlap with requested prompt objects, colors, and tokens."
+
+
+def _refinement_delta(metadata: dict[str, object], *, quality_score: float) -> dict[str, object] | None:
+    parent_total = _float_or_none(metadata.get("parent_total_score"))
+    parent_quality = _float_or_none(metadata.get("parent_quality_score"))
+    parent_caption = _float_or_none(metadata.get("parent_caption_similarity_score"))
+    if parent_total is None and parent_quality is None and parent_caption is None:
+        return None
+
+    current_total = _float_or_none(metadata.get("total_score"))
+    current_caption = _float_or_none(metadata.get("caption_similarity_score"))
+    return {
+        "parent_total_score": _rounded_or_none(parent_total),
+        "current_total_score": _rounded_or_none(current_total),
+        "total_score_delta": _delta(current_total, parent_total),
+        "parent_quality_score": _rounded_or_none(parent_quality),
+        "current_quality_score": round(quality_score, 6),
+        "quality_score_delta": _delta(quality_score, parent_quality),
+        "parent_caption_similarity_score": _rounded_or_none(parent_caption),
+        "current_caption_similarity_score": _rounded_or_none(current_caption),
+        "caption_similarity_delta": _delta(current_caption, parent_caption),
+        "continuity_score": _rounded_or_none(_float_or_none(metadata.get("initial_similarity_score"))),
+    }
+
+
+def _delta(current: object, parent: object) -> float | None:
+    current_value = _float_or_none(current)
+    parent_value = _float_or_none(parent)
+    if current_value is None or parent_value is None:
+        return None
+    return round(current_value - parent_value, 6)
+
+
+def _rounded_or_none(value: float | None) -> float | None:
+    return round(value, 6) if value is not None else None
 
 
 def _size_score(metadata: dict[str, object]) -> float:

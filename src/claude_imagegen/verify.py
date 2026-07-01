@@ -314,6 +314,7 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "caption_similarity_model": metadata.get("caption_similarity_model"),
         "effective_caption_similarity_device": metadata.get("effective_caption_similarity_device"),
         "initial_similarity_score": metadata.get("initial_similarity_score"),
+        "refinement_delta": metadata.get("refinement_delta"),
         "similarity_backend": metadata.get("similarity_backend"),
         "similarity_model": metadata.get("similarity_model"),
         "continuity_backend": metadata.get("continuity_backend"),

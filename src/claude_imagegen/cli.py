@@ -348,6 +348,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Candidates {result.candidates_path}")
             print(f"Contact sheet {result.metadata['candidate_contact_sheet']}")
         print(f"Initial similarity {result.metadata['initial_similarity_score']}")
+        refinement_delta = result.metadata.get("refinement_delta")
+        if isinstance(refinement_delta, dict):
+            print(
+                "Refinement delta "
+                f"total {refinement_delta.get('total_score_delta')} "
+                f"quality {refinement_delta.get('quality_score_delta')} "
+                f"caption {refinement_delta.get('caption_similarity_delta')}"
+            )
         critique_signal_data = result.metadata.get("visual_critique")
         if isinstance(critique_signal_data, dict):
             print(
