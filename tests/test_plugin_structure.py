@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.3"
+EXPECTED_VERSION = "0.1.4"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -51,6 +51,7 @@ def test_claude_skill_and_executable_are_present():
     assert "claude-imagegen generate" in skill_text
     assert "claude-imagegen diffuse" in skill_text
     assert "claude-imagegen pair-eval" in skill_text
+    assert "claude-imagegen enhance-night" in skill_text
     assert "pair-evaluation-request.json" in skill_text
     assert "--scene-plan" in skill_text
     assert "scene-plan.json" in skill_text
@@ -145,6 +146,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert 'python -m pip install -e ".[diffusion]"' in readme
     assert "claude-imagegen diffuse" in readme
     assert "claude-imagegen pair-eval" in readme
+    assert "claude-imagegen enhance-night" in readme
     assert "claude-imagegen setup --with-diffusion" in readme
     assert "--profile night-photoreal" in readme
     assert "scene-plan.json" in readme

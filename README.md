@@ -81,6 +81,16 @@ claude-imagegen pair-eval \
 
 Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`. Do not claim GPT/Sora parity unless the after image scores at least `0.9` and the response marks the gate as met.
 
+If Claude says the improved image is too bright or hazy for deep night, run a dark-preserving local postprocess:
+
+```bash
+claude-imagegen enhance-night --input-image claude-imagegen-output/refined/image.png \
+  --prompt "deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections" \
+  --output-dir claude-imagegen-output/refined-night --quality-target 0.9
+```
+
+`enhance-night` writes a new `image.png`, `metadata.json`, and `pair-evaluation-request.json`; Claude must still score the before/after pair before acceptance.
+
 ## Refinement
 
 Continue from a previous CPU output:
@@ -94,15 +104,7 @@ claude-imagegen refine \
   --max-iterations 8
 ```
 
-For visual feedback loops, fill `critique-request.json` as `critique.json`, then pass it back:
-
-```bash
-claude-imagegen refine \
-  --from-dir claude-imagegen-output/demo \
-  --prompt "same coastal scene with the critique applied" \
-  --output-dir claude-imagegen-output/demo-refined \
-  --critique claude-imagegen-output/demo/critique.json
-```
+For visual feedback loops, fill `critique-request.json` as `critique.json`, then pass it back with `refine --critique claude-imagegen-output/demo/critique.json`.
 
 ## Outputs
 
@@ -118,8 +120,6 @@ Each run writes:
 - `verification-report.json`: created by `verify`, with nonblank image checks and CPU/GPU device evidence.
 
 ## Verify
-
-Run tests:
 
 ```bash
 python -m pytest

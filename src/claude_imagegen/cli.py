@@ -8,6 +8,7 @@ import sys
 
 from .critique import write_pair_evaluation_request
 from .diffusion import DIFFUSION_PROFILE_NAMES, DiffusionOptions, generate_diffusion_image
+from .enhance import EnhanceNightOptions, enhance_night_image
 from .generator import GenerateOptions, generate_image
 from .refine import RefineOptions, refine_image
 from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
@@ -333,6 +334,19 @@ def build_parser() -> argparse.ArgumentParser:
     pair_eval.add_argument("--quality-target", type=float, default=0.9)
     pair_eval.add_argument("--notes", default="", help="Optional context for Claude's evaluator request.")
 
+    enhance_night = subcommands.add_parser(
+        "enhance-night",
+        help="Postprocess an existing local image while preserving deep-night exposure.",
+    )
+    enhance_night.add_argument("--input-image", type=Path, required=True, help="Existing image to enhance.")
+    enhance_night.add_argument("--prompt", required=True, help="Prompt the enhanced image should satisfy.")
+    enhance_night.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/enhance-night"))
+    enhance_night.add_argument("--quality-target", type=float, default=0.9)
+    enhance_night.add_argument("--night-luma-ceiling", type=float, default=0.34)
+    enhance_night.add_argument("--mist-cap", type=float, default=0.22)
+    enhance_night.add_argument("--highlight-rolloff", type=float, default=0.35)
+    enhance_night.add_argument("--local-contrast", type=float, default=0.9)
+
     setup = subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
     setup.add_argument(
         "--with-diffusion",
@@ -564,6 +578,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Pair evaluation request {request_path}")
         print("Open this JSON with Claude vision and fill expected_response before claiming 0.9 quality.")
+        return 0
+
+    if args.command == "enhance-night":
+        result = enhance_night_image(
+            EnhanceNightOptions(
+                input_image=args.input_image,
+                prompt=args.prompt,
+                output_dir=args.output_dir,
+                quality_target=args.quality_target,
+                night_luma_ceiling=args.night_luma_ceiling,
+                mist_cap=args.mist_cap,
+                highlight_rolloff=args.highlight_rolloff,
+                local_contrast=args.local_contrast,
+            )
+        )
+        print(f"Enhanced {result.image_path}")
+        print(f"Metadata {result.metadata_path}")
+        print(f"Mean luma {result.metadata['before_mean_luma']} -> {result.metadata['after_mean_luma']}")
+        print(f"Lower contrast {result.metadata['before_lower_luma_std']} -> {result.metadata['after_lower_luma_std']}")
+        print(f"Pair evaluation request {result.pair_evaluation_request_path}")
         return 0
 
     if args.command == "setup":

@@ -86,6 +86,18 @@ claude-imagegen pair-eval \
 
 Open `pair-evaluation-request.json` and fill its `expected_response`; the gate fails unless the best after image reaches `0.9`, detail is strong, and GPT/Sora parity is visually plausible.
 
+If Claude vision says the refined image improved detail but became too bright, hazy, or dusk-like for a deep-night prompt, run the dark-preserving local postprocess before another evaluation:
+
+```bash
+claude-imagegen enhance-night \
+  --input-image "claude-imagegen-output/<refined>/image.png" \
+  --prompt "<user prompt>" \
+  --output-dir "claude-imagegen-output/<refined>-night" \
+  --quality-target 0.9
+```
+
+Then open the new `pair-evaluation-request.json` and compare the before/after images. Do not accept the enhanced image unless Claude's response says the night mood is preserved and the after image reaches the requested gate.
+
 `critique.json` schema (all fields optional except `closeness_score`):
 
 ```json
