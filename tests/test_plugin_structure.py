@@ -89,6 +89,7 @@ def test_claude_skill_and_executable_are_present():
     assert "checklist-derived edits" in skill_text
     assert "style/mood checks" in skill_text
     assert "refinement_delta" in skill_text
+    assert "refinement_guidance" in skill_text
     assert "multiscale_luminance_ssim_score" in skill_text
     assert "weakest_continuity_region" in skill_text
     assert "--strong-size" in skill_text
@@ -128,6 +129,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "refine --comparison" in readme
     assert "visual_comparison" in readme
     assert "refinement_delta" in readme
+    assert "refinement_guidance" in readme
     assert "multiscale_luminance_ssim_score" in readme
     assert "weakest_continuity_region" in readme
     assert "aesthetic_score" in readme

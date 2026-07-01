@@ -91,3 +91,40 @@ def test_quality_report_surfaces_failed_visual_element_checks_as_next_actions():
             "confidence": 0.2,
         },
     ]
+
+
+def test_quality_report_builds_refinement_guidance_for_parent_regressions():
+    report = build_quality_report(
+        {
+            "total_score": 0.58,
+            "threshold": 0.4,
+            "caption_similarity_score": 0.51,
+            "width": 96,
+            "height": 64,
+            "parent_total_score": 0.70,
+            "parent_quality_score": 0.78,
+            "parent_caption_similarity_score": 0.72,
+            "initial_similarity_score": 0.62,
+            "initial_similarity_details": {
+                "weakest_continuity_region": "upper_left",
+                "weakest_continuity_region_score": 0.41,
+            },
+        }
+    )
+
+    guidance = report["refinement_guidance"]
+    assert guidance["decision"] == "revise"
+    axes = {axis["axis"]: axis for axis in guidance["priority_axes"]}
+
+    assert axes["prompt_alignment"]["delta"] == -0.12
+    assert axes["prompt_alignment"]["severity"] == "revise"
+    assert axes["quality"]["delta"] < -0.03
+    assert axes["caption_alignment"]["delta"] == -0.21
+    assert axes["continuity"]["score"] == 0.62
+    assert axes["continuity"]["weakest_region"] == "upper_left"
+    assert axes["continuity"]["weakest_region_score"] == 0.41
+
+    assert "Refinement: restore prompt alignment that dropped versus the parent." in report["next_actions"]
+    assert "Refinement: inspect failed quality checks before continuing; overall quality dropped versus the parent." in report["next_actions"]
+    assert "Refinement: restore caption evidence for requested objects, colors, and relationships." in report["next_actions"]
+    assert "Refinement: preserve parent layout near the upper left region; it has the weakest continuity score (0.410)." in report["next_actions"]

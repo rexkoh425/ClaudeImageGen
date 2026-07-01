@@ -13,6 +13,8 @@ def apply_quality_report(output_dir: Path, metadata: dict[str, object]) -> Path:
     metadata["quality_score"] = report["quality_score"]
     if report.get("refinement_delta") is not None:
         metadata["refinement_delta"] = report["refinement_delta"]
+    if report.get("refinement_guidance") is not None:
+        metadata["refinement_guidance"] = report["refinement_guidance"]
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report_path
 
@@ -21,12 +23,13 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
     checks = _quality_checks(metadata)
     quality_score = _weighted_quality_score(checks)
     status = _quality_status(checks, quality_score)
-    next_actions = _next_actions(metadata, checks, status)
     continuity_score = _float_or_none(metadata.get("initial_similarity_score"))
     continuity_details = metadata.get("initial_similarity_details")
     weakest_region = _weakest_continuity_region(continuity_details)
     weakest_region_score = _weakest_continuity_region_score(continuity_details)
     refinement_delta = _refinement_delta(metadata, quality_score=quality_score)
+    refinement_guidance = _refinement_guidance(metadata, refinement_delta=refinement_delta)
+    next_actions = _next_actions(metadata, checks, status, refinement_guidance=refinement_guidance)
 
     return {
         "status": status,
@@ -38,6 +41,7 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
         "weakest_continuity_region": weakest_region,
         "weakest_continuity_region_score": weakest_region_score,
         "refinement_delta": refinement_delta,
+        "refinement_guidance": refinement_guidance,
         "recommended_candidate_rank": metadata.get("recommended_candidate_rank"),
         "recommended_candidate_score": metadata.get("recommended_candidate_score"),
         "recommended_candidate_aesthetic_score": metadata.get("recommended_candidate_aesthetic_score"),
@@ -227,7 +231,13 @@ def _weighted_quality_score(checks: list[dict[str, object]]) -> float:
     return round(max(0.0, min(1.0, score)), 6)
 
 
-def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], status: str) -> list[str]:
+def _next_actions(
+    metadata: dict[str, object],
+    checks: list[dict[str, object]],
+    status: str,
+    *,
+    refinement_guidance: dict[str, object] | None = None,
+) -> list[str]:
     actions = list(dict.fromkeys(_string_list(metadata.get("revision_hints"))))
 
     missing_objects = _string_list(metadata.get("caption_missing_objects"))
@@ -271,12 +281,16 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
     if "candidate_recommendation" in failed and metadata.get("candidate_index"):
         actions.append("Inspect candidates/contact-sheet.png before choosing the next refinement parent.")
 
-    total_delta = _delta(metadata.get("total_score"), metadata.get("parent_total_score"))
-    caption_delta = _delta(metadata.get("caption_similarity_score"), metadata.get("parent_caption_similarity_score"))
-    if total_delta is not None and total_delta < -0.03:
-        actions.append("Refinement lowered prompt alignment versus the parent; compare against the parent before continuing.")
-    if caption_delta is not None and caption_delta < -0.05:
-        actions.append("Refinement lowered caption alignment versus the parent; inspect whether requested visual evidence disappeared.")
+    if refinement_guidance is not None:
+        for action in _refinement_guidance_actions(refinement_guidance):
+            actions.append(action)
+    else:
+        total_delta = _delta(metadata.get("total_score"), metadata.get("parent_total_score"))
+        caption_delta = _delta(metadata.get("caption_similarity_score"), metadata.get("parent_caption_similarity_score"))
+        if total_delta is not None and total_delta < -0.03:
+            actions.append("Refinement lowered prompt alignment versus the parent; compare against the parent before continuing.")
+        if caption_delta is not None and caption_delta < -0.05:
+            actions.append("Refinement lowered caption alignment versus the parent; inspect whether requested visual evidence disappeared.")
 
     if not actions:
         if status == "pass":
@@ -284,6 +298,20 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
         else:
             actions.append("Review image.png, metadata.json, and candidates/contact-sheet.png before deciding whether to refine.")
     return actions[:8]
+
+
+def _refinement_guidance_actions(guidance: dict[str, object]) -> list[str]:
+    axes = guidance.get("priority_axes")
+    if not isinstance(axes, list):
+        return []
+    actions: list[str] = []
+    for axis in axes:
+        if not isinstance(axis, dict):
+            continue
+        action = str(axis.get("action") or "").strip()
+        if action:
+            actions.append(action)
+    return actions
 
 
 def _summary(status: str, quality_score: float, checks: list[dict[str, object]]) -> str:
@@ -416,6 +444,85 @@ def _refinement_delta(metadata: dict[str, object], *, quality_score: float) -> d
         "caption_similarity_delta": _delta(current_caption, parent_caption),
         "continuity_score": _rounded_or_none(_float_or_none(metadata.get("initial_similarity_score"))),
     }
+
+
+def _refinement_guidance(metadata: dict[str, object], *, refinement_delta: dict[str, object] | None) -> dict[str, object] | None:
+    if refinement_delta is None:
+        return None
+
+    axes: list[dict[str, object]] = []
+    total_delta = _float_or_none(refinement_delta.get("total_score_delta"))
+    if total_delta is not None and total_delta < -0.03:
+        axes.append(
+            {
+                "axis": "prompt_alignment",
+                "delta": round(total_delta, 6),
+                "severity": "revise" if total_delta <= -0.08 else "review",
+                "action": "Refinement: restore prompt alignment that dropped versus the parent.",
+            }
+        )
+
+    quality_delta = _float_or_none(refinement_delta.get("quality_score_delta"))
+    if quality_delta is not None and quality_delta < -0.03:
+        axes.append(
+            {
+                "axis": "quality",
+                "delta": round(quality_delta, 6),
+                "severity": "revise" if quality_delta <= -0.08 else "review",
+                "action": "Refinement: inspect failed quality checks before continuing; overall quality dropped versus the parent.",
+            }
+        )
+
+    caption_delta = _float_or_none(refinement_delta.get("caption_similarity_delta"))
+    if caption_delta is not None and caption_delta < -0.05:
+        axes.append(
+            {
+                "axis": "caption_alignment",
+                "delta": round(caption_delta, 6),
+                "severity": "revise" if caption_delta <= -0.12 else "review",
+                "action": "Refinement: restore caption evidence for requested objects, colors, and relationships.",
+            }
+        )
+
+    continuity_score = _float_or_none(refinement_delta.get("continuity_score"))
+    if continuity_score is not None and continuity_score < 0.78:
+        weakest_region = _weakest_continuity_region(metadata.get("initial_similarity_details"))
+        weakest_score = _weakest_continuity_region_score(metadata.get("initial_similarity_details"))
+        continuity_axis: dict[str, object] = {
+            "axis": "continuity",
+            "score": round(continuity_score, 6),
+            "severity": "revise" if continuity_score < 0.58 else "review",
+            "action": "Refinement: preserve parent layout, palette, and silhouettes; continuity is below the pass threshold.",
+        }
+        if weakest_region:
+            continuity_axis["weakest_region"] = weakest_region
+            if weakest_score is not None:
+                continuity_axis["weakest_region_score"] = round(weakest_score, 6)
+                continuity_axis["action"] = (
+                    f"Refinement: preserve parent layout near the {weakest_region.replace('_', ' ')} region; "
+                    f"it has the weakest continuity score ({weakest_score:.3f})."
+                )
+        axes.append(continuity_axis)
+
+    if any(str(axis.get("severity")) == "revise" for axis in axes):
+        decision = "revise"
+    elif axes:
+        decision = "review"
+    else:
+        decision = "accept"
+
+    axis_names = [str(axis.get("axis")) for axis in axes]
+    return {
+        "decision": decision,
+        "priority_axes": axes,
+        "summary": _refinement_guidance_summary(decision, axis_names),
+    }
+
+
+def _refinement_guidance_summary(decision: str, axis_names: list[str]) -> str:
+    if not axis_names:
+        return "accept: refinement did not regress tracked parent-child score axes."
+    return f"{decision}: inspect {', '.join(axis_names)} before the next refinement."
 
 
 def _delta(current: object, parent: object) -> float | None:
