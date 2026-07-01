@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from PIL import Image, ImageDraw
@@ -25,7 +26,7 @@ PHOTOREAL_PROMPT_PREFIX = (
     "physically plausible lighting"
 )
 NIGHT_PHOTOREAL_PROMPT_PREFIX = (
-    "photorealistic high-detail DSLR, deep night exposure"
+    "photorealistic DSLR high detail"
 )
 
 DIFFUSION_PROFILES: dict[str, dict[str, object]] = {
@@ -302,7 +303,12 @@ def _resolve_diffusion_config(options: DiffusionOptions) -> dict[str, object]:
         focus_terms=focus_terms,
         profile=profile_name,
     )
-    prompt = _apply_prompt_prefix(options.prompt.strip(), prompt_prefix)
+    prompt = _compose_diffusion_prompt(
+        options.prompt.strip(),
+        prompt_prefix,
+        focus_terms=focus_terms,
+        profile=profile_name,
+    )
     return {
         "profile": profile_name,
         "model": options.model or str(profile["model"]),
@@ -323,18 +329,21 @@ def _quality_prompt_prefix(prefix: str, *, focus_terms: tuple[str, ...], profile
 
     focus = {term.strip().lower() for term in focus_terms}
     priority_clauses: list[str] = []
+    has_mist = bool(focus.intersection({"mist", "fog", "haze", "volumetric"}))
+    has_light = bool(focus.intersection({"lamp", "light", "tungsten"}))
     if "night" in focus:
-        priority_clauses.append("deep-night black point preserved")
-    if focus.intersection({"lamp", "light", "tungsten"}):
-        priority_clauses.append("warm tungsten hanging lamps clearly visible")
-    if focus.intersection({"mist", "fog", "haze", "volumetric"}) and focus.intersection({"lamp", "light", "tungsten"}):
-        priority_clauses.append("volumetric light beams from warm tungsten lamps")
-    if focus.intersection({"mist", "fog", "haze", "volumetric"}):
-        priority_clauses.append("visible interior volumetric mist in warm light cones")
+        priority_clauses.append("deep night")
+        priority_clauses.append("preserved black point")
+    if has_light:
+        priority_clauses.append("warm tungsten lamps visible")
+    if has_mist and has_light:
+        priority_clauses.append("visible tungsten light shafts in mist")
+    elif has_mist:
+        priority_clauses.append("visible interior mist")
     if focus.intersection({"reflection", "wet", "mirror", "floor"}):
-        priority_clauses.append("coherent mirror-wet floor reflections")
+        priority_clauses.append("mirror-wet black floor reflections")
     if focus.intersection({"leaf detail", "plant", "foliage"}):
-        priority_clauses.append("crisp leaf-vein microdetail")
+        priority_clauses.append("sharp tropical leaf edges")
     clauses = base_clauses[:2] + priority_clauses + base_clauses[2:]
     return ", ".join(dict.fromkeys(clauses))
 
@@ -345,6 +354,63 @@ def _apply_prompt_prefix(prompt: str, prefix: str) -> str:
     if prompt.lower().startswith(prefix.lower()):
         return prompt
     return f"{prefix}, {prompt}"
+
+
+def _compose_diffusion_prompt(prompt: str, prefix: str, *, focus_terms: tuple[str, ...], profile: str) -> str:
+    if profile == "night-photoreal":
+        prompt = _compact_night_photoreal_tail(prompt, focus_terms=focus_terms)
+    return _apply_prompt_prefix(prompt, prefix)
+
+
+def _compact_night_photoreal_tail(prompt: str, *, focus_terms: tuple[str, ...]) -> str:
+    focus = {term.strip().lower() for term in focus_terms}
+    clauses = [clause.strip() for clause in prompt.split(",") if clause.strip()]
+    compacted: list[str] = []
+    for clause in clauses:
+        cleaned = _remove_redundant_night_quality_terms(clause, focus=focus)
+        if cleaned:
+            compacted.append(cleaned)
+    return ", ".join(dict.fromkeys(compacted))
+
+
+def _remove_redundant_night_quality_terms(clause: str, *, focus: set[str]) -> str:
+    replacements: list[tuple[str, str]] = []
+    if focus.intersection({"lamp", "light", "tungsten"}):
+        replacements.extend(
+            [
+                ("warm tungsten hanging lamps", ""),
+                ("warm tungsten lamps", ""),
+                ("tungsten lamps", ""),
+            ]
+        )
+    if focus.intersection({"mist", "fog", "haze", "volumetric"}):
+        replacements.extend(
+            [
+                ("visible interior volumetric mist in the lamp beams", ""),
+                ("volumetric mist in the lamp beams", ""),
+                ("volumetric mist", ""),
+                ("mist beams", ""),
+            ]
+        )
+    if focus.intersection({"reflection", "wet", "mirror", "floor"}):
+        replacements.extend(
+            [
+                ("wet black stone floor with coherent mirror reflections", ""),
+                ("black wet mirror floor", ""),
+                ("coherent mirror reflections", ""),
+                ("mirror reflections", ""),
+            ]
+        )
+    if focus.intersection({"leaf detail", "plant", "foliage"}):
+        replacements.append(("sharp leaf veins", ""))
+
+    cleaned = clause
+    for source, replacement in replacements:
+        cleaned = re.sub(re.escape(source), replacement, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"\b(with|and|of|in|at)\s*$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" ,.;:")
 
 
 def _prompt_focus_terms(
@@ -471,7 +537,7 @@ def _clamp01(value: float) -> float:
 
 
 def _prompt_token_estimate(prompt: str) -> int:
-    return len([token for token in prompt.replace(",", " ").split() if token])
+    return len(re.findall(r"[A-Za-z0-9]+", prompt))
 
 
 def _prompt_length_warning(token_estimate: int) -> str | None:

@@ -49,14 +49,14 @@ Do not claim GPT/Sora parity just because local checks improved. If the user ask
 
 Useful semantic object types for indoor/detail scenes include `"greenhouse"`, `"plant"`, `"lamp"`, and `"floor"` in addition to the older `"sun"`, `"moon"`, `"cloud"`, `"ocean"`, `"mountain"`, `"forest"`, `"building"`, `"portrait"`, and `"robot"` objects. Use `"veils"` for mist/fog and `"clouds"` only when the prompt explicitly asks for clouds; use `"moon"` only when a visible moon is explicitly requested.
 
-First-time setup can be checked with:
+First-time setup can be checked with these commands. The diffusion check reports missing optional packages and whether CUDA is visible:
 
 ```bash
 claude-imagegen setup
 claude-imagegen setup --with-diffusion
 ```
 
-For photoreal local GPU attempts after diffusion setup, use:
+For photoreal local GPU attempts after diffusion setup, use the compact `night-photoreal` profile; it keeps lamp, mist-beam, floor-reflection, and leaf-detail terms early enough to avoid CLIP prompt truncation:
 
 ```bash
 claude-imagegen diffuse \

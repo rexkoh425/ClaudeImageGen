@@ -422,7 +422,7 @@ def test_diffusion_profile_applies_photoreal_defaults(tmp_path: Path, monkeypatc
     assert metadata["steps"] == 28
     assert metadata["guidance_scale"] == 7.0
     assert "furniture" in metadata["negative_prompt"]
-    assert metadata["normalized_prompt"].startswith("photorealistic high-detail DSLR")
+    assert metadata["normalized_prompt"].startswith("photorealistic DSLR high detail")
 
 
 def test_night_diffusion_profile_promotes_strict_quality_features(tmp_path: Path, monkeypatch):
@@ -467,12 +467,102 @@ def test_night_diffusion_profile_promotes_strict_quality_features(tmp_path: Path
     assert "tropical plants" in normalized_prompt.lower()
     first_clause = normalized_prompt.split(",", maxsplit=8)[:8]
     early_prompt = ",".join(first_clause).lower()
-    assert "interior volumetric mist" in early_prompt
-    assert "mirror-wet floor reflections" in early_prompt
-    assert "crisp leaf-vein microdetail" in early_prompt
-    assert "warm tungsten hanging lamps" in early_prompt
-    assert "volumetric light beams from warm tungsten lamps" in early_prompt
+    assert "visible tungsten light shafts in mist" in early_prompt
+    assert "mirror-wet black floor reflections" in early_prompt
+    assert "sharp tropical leaf edges" in early_prompt
+    assert "warm tungsten lamps visible" in early_prompt
     assert captured["prompt"] == normalized_prompt
+
+
+def test_night_diffusion_profile_compacts_repeated_quality_terms(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    captured: dict[str, object] = {}
+
+    class FakePipeline:
+        def __call__(self, **kwargs):
+            captured["prompt"] = kwargs["prompt"]
+            return SimpleNamespace(images=[Image.new("RGB", (int(kwargs["width"]), int(kwargs["height"])), (18, 40, 32))])
+
+    monkeypatch.setattr(diffusion_module, "_load_pipeline", lambda *, model, device: (FakePipeline(), "cuda"))
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt=(
+                "deep night glass greenhouse, tropical plants, sharp leaves, warm tungsten lamps, "
+                "mist beams, black wet mirror floor, no people"
+            ),
+            output_dir=tmp_path / "diffusion-compact-prompt",
+            profile="night-photoreal",
+            width=96,
+            height=64,
+            seeds=(7,),
+            device="auto",
+        )
+    )
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    normalized_prompt = metadata["normalized_prompt"]
+    lower_prompt = normalized_prompt.lower()
+    assert metadata["prompt_token_estimate"] <= 70
+    assert metadata["prompt_length_warning"] is None
+    assert lower_prompt.count("warm tungsten") <= 2
+    assert lower_prompt.count("mist") <= 2
+    assert lower_prompt.count("mirror") <= 2
+    assert "deep night glass greenhouse" in lower_prompt
+    assert "tropical plants" in lower_prompt
+    assert "no people" in lower_prompt
+    assert captured["prompt"] == normalized_prompt
+
+
+def test_night_diffusion_profile_keeps_prompt_inside_clip_safety_margin(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    class FakePipeline:
+        def __call__(self, **kwargs):
+            return SimpleNamespace(images=[Image.new("RGB", (int(kwargs["width"]), int(kwargs["height"])), (18, 40, 32))])
+
+    monkeypatch.setattr(diffusion_module, "_load_pipeline", lambda *, model, device: (FakePipeline(), "cuda"))
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt=(
+                "deep night glass greenhouse, tropical plants, sharp leaves, warm tungsten lamps, "
+                "mist beams, black wet mirror floor, no people"
+            ),
+            output_dir=tmp_path / "diffusion-clip-margin",
+            profile="night-photoreal",
+            width=96,
+            height=64,
+            seeds=(7,),
+            device="auto",
+        )
+    )
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    lower_prompt = metadata["normalized_prompt"].lower()
+    assert metadata["prompt_token_estimate"] <= 42
+    assert metadata["prompt_length_warning"] is None
+    assert "warm tungsten lamps" in lower_prompt
+    assert "visible tungsten light shafts in mist" in lower_prompt
+    assert "mirror-wet black floor reflections" in lower_prompt
+    assert "sharp tropical leaf edges" in lower_prompt
+    assert "no people" in lower_prompt
+
+
+def test_prompt_token_estimate_counts_hyphenated_visual_terms_conservatively():
+    from claude_imagegen.diffusion import _prompt_token_estimate
+
+    prompt = (
+        "photorealistic high-detail DSLR, deep-night black point preserved, "
+        "mirror-wet floor reflections, crisp leaf-vein microdetail"
+    )
+
+    assert _prompt_token_estimate(prompt) >= 17
 
 
 def test_diffusion_candidate_selection_penalizes_missing_required_prompt_terms(tmp_path: Path):

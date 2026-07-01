@@ -15,11 +15,11 @@ On another machine, install Claude Code, sign in to GitHub if this repo is priva
 /plugin install claude-imagegen@claude-imagegen
 ```
 
-Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded.
+Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. To update after a new release, run the same install command again and restart.
 
 ## Easier Local Setup
 
-From a clone of this repo:
+From a clone of this repo, run the setup check first. It reports missing Python packages, optional Diffusers/Torch packages, and CUDA visibility.
 
 ```bash
 python -m pip install -e .
@@ -54,7 +54,7 @@ After installing the diffusion extra, use the photoreal profile for detailed nig
 ```bash
 claude-imagegen diffuse \
   --profile night-photoreal \
-  --prompt "deep night glass greenhouse interior, tropical plants with sharp leaf veins, warm tungsten hanging lamps, volumetric mist, wet black stone floor with mirror reflections, no people" \
+  --prompt "deep night glass greenhouse, tropical plants, sharp leaves, warm tungsten lamps, mist beams, black wet mirror floor, no people" \
   --output-dir claude-imagegen-output/greenhouse-gpu \
   --width 1024 \
   --height 768 \
@@ -63,7 +63,7 @@ claude-imagegen diffuse \
   --quality-target 0.9
 ```
 
-`diffuse` writes multiple candidates, selects the strongest prompt-aware local candidate, and creates `candidates/contact-sheet.png`. For multi-refinement, rerun it with `--initial-image <previous image.png> --strength 0.16` to use local image-to-image diffusion. Open `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting a `0.9` target.
+`diffuse` writes multiple candidates, selects the strongest prompt-aware local candidate, and creates `candidates/contact-sheet.png`. The `night-photoreal` profile keeps beam, floor, lamp, and leaf-detail terms compact so they do not fall out of CLIP's text window. For multi-refinement, rerun it with `--initial-image <previous image.png> --strength 0.16` to use local image-to-image diffusion. Open `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting a `0.9` target.
 
 ## Pair Evaluation
 
@@ -161,7 +161,7 @@ Open `verification-report.json` and check `image_summary`, `device_summary`, non
 
 `--quality-target 0.9` is a gate, not a promise. A run should only be accepted when local scores and `image_detail_score` are strong, Claude vision gives a high `closeness_score`, `quality-report.json` has `target_quality_met: true`, and GPT/Sora-level parity is not claimed unless an actual Claude visual judgement supports it.
 
-Current greenhouse testing on an RTX 5070 Ti improved through diffusion, postprocessing, and image-to-image refinement, but Claude pair-evaluation still scored the best after images around `0.84`, not `0.9`. Treat that as useful progress, not solved parity.
+Current greenhouse testing on an RTX 5070 Ti confirmed CUDA diffusion and no CLIP truncation with the compact night prompt, but strict Claude pair-evaluation still kept the best images below `0.9`. Treat that as useful progress, not solved parity.
 
 ## Current Limits
 
