@@ -59,7 +59,7 @@ Good future similarity/refinement signals should be layered rather than singular
 
 1. CLIP/SigLIP-style prompt-image embedding cosine for broad semantic alignment.
 2. Reference-image embedding cosine plus palette/layout comparisons for image-to-image refinement.
-3. Structural continuity signals such as luminance SSIM, edge cosine, pixel cosine, and color-histogram overlap so edits can preserve layout instead of chasing only text alignment.
+3. Structural continuity signals such as single-scale and multi-scale luminance SSIM, edge cosine, pixel cosine, and color-histogram overlap so edits can preserve layout instead of chasing only text alignment.
 4. Caption-backchecking with local heuristics or a BLIP-style image captioner, then lexical or sentence-embedding prompt/caption comparison so Claude can compare what the generated image appears to contain against the requested prompt.
 5. Preference/aesthetic reward such as ImageReward for choosing among multiple aligned candidates.
 6. Hard local checks for resolution, aspect ratio, nonblankness, contrast, and requested object/color evidence.
@@ -129,9 +129,12 @@ how each maps to this code-only loop, are below.
 
 ### Image-to-image similarity (the "did the edit keep what mattered" question)
 
-- **SSIM / PSNR** are classic, model-free structural/error metrics. SSIM (luminance + contrast +
-  structure) is good for continuity between refinement iterations but blind to semantics. Already
-  used here as `luminance_ssim_score`.
+- **SSIM / MS-SSIM / PSNR** are classic, model-free structural/error metrics. SSIM (luminance +
+  contrast + structure) is good for continuity between refinement iterations but blind to semantics.
+  Multi-scale SSIM ([Wang et al., 2003](https://ece.uwaterloo.ca/~z70wang/publications/msssim.html))
+  checks structure after repeated low-pass/downsample steps, making it more useful when a refine run
+  preserves broad layout while changing local detail. This project records both
+  `luminance_ssim_score` and `multiscale_luminance_ssim_score`.
 - **LPIPS** ([Zhang et al., 2018](https://arxiv.org/abs/1801.03924)) compares deep CNN features and
   tracks low-level human perception well, but is not semantic: two images can look similar and mean
   very different things.
@@ -172,9 +175,11 @@ CLIP, SigLIP, or DINOv2 image-embedding cosine is blended in for a stronger cont
 
 The refinement loop is meant to use independent signals rather than a single oracle, mirroring the
 survey above: VQAScore-style alignment (Claude vision judge), text-embedding cosine (local feature
-vector or optional CLIP), caption backcheck (TIT-Score-style), and image-embedding cosine for
-continuity (local layered embedding or optional CLIP/DINOv2). The `quality-report.json` aggregates
-these into a status and `next_actions`, but every number remains traceable to its source signal.
+vector or optional CLIP), caption backcheck (TIT-Score-style), structural continuity
+(`luminance_ssim_score`, `multiscale_luminance_ssim_score`, edge cosine, color histograms), and
+image-embedding cosine for continuity (local layered embedding or optional CLIP/DINOv2). The
+`quality-report.json` aggregates these into a status and `next_actions`, but every number remains
+traceable to its source signal.
 
 ### Honest scope versus Nano Banana
 

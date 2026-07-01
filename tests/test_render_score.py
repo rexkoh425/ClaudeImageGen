@@ -97,6 +97,7 @@ def test_reference_and_initial_palettes_are_written_to_metadata(tmp_path: Path):
     assert initial_details["continuity_score"] == result.metadata["initial_similarity_score"]
     assert 0.0 <= initial_details["image_cosine_score"] <= 1.0
     assert 0.0 <= initial_details["luminance_ssim_score"] <= 1.0
+    assert 0.0 <= initial_details["multiscale_luminance_ssim_score"] <= 1.0
     assert 0.0 <= initial_details["edge_cosine_score"] <= 1.0
     assert 0.0 <= initial_details["color_histogram_score"] <= 1.0
 
@@ -118,6 +119,8 @@ def test_image_similarity_details_reward_identical_images_over_different_image(t
     assert identical_details["continuity_score"] > different_details["continuity_score"]
     assert identical_details["image_cosine_score"] > different_details["image_cosine_score"]
     assert identical_details["luminance_ssim_score"] > different_details["luminance_ssim_score"]
+    assert identical_details["multiscale_luminance_ssim_score"] > different_details["multiscale_luminance_ssim_score"]
+    assert identical_details["multiscale_luminance_ssim_score"] >= 0.99
     assert identical_details["edge_cosine_score"] > different_details["edge_cosine_score"]
     assert identical_details["color_histogram_score"] > different_details["color_histogram_score"]
     assert identical_details["continuity_score"] >= 0.99

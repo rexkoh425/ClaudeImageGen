@@ -77,23 +77,26 @@ def image_similarity_details(
     )
     embedding_cosine_score = image_embedding_similarity(image_rgb, comparison_rgb)
     luminance_ssim_score = _luminance_ssim_score(image_array, comparison_array)
+    multiscale_luminance_ssim_score = _multiscale_luminance_ssim_score(image_array, comparison_array)
     edge_cosine_score = _cosine_similarity(
         _edge_feature_vector(image_array),
         _edge_feature_vector(comparison_array),
     )
     color_histogram_score = _color_histogram_similarity(image_array, comparison_array)
     local_continuity_score = _clamp01(
-        (0.30 * embedding_cosine_score)
-        + (0.24 * luminance_ssim_score)
+        (0.26 * embedding_cosine_score)
+        + (0.17 * luminance_ssim_score)
+        + (0.18 * multiscale_luminance_ssim_score)
         + (0.18 * edge_cosine_score)
-        + (0.16 * color_histogram_score)
-        + (0.12 * image_cosine_score)
+        + (0.13 * color_histogram_score)
+        + (0.08 * image_cosine_score)
     )
 
     details = {
         "image_embedding_cosine_score": round(embedding_cosine_score, 6),
         "image_cosine_score": round(image_cosine_score, 6),
         "luminance_ssim_score": round(luminance_ssim_score, 6),
+        "multiscale_luminance_ssim_score": round(multiscale_luminance_ssim_score, 6),
         "edge_cosine_score": round(edge_cosine_score, 6),
         "color_histogram_score": round(color_histogram_score, 6),
         "local_continuity_score": round(local_continuity_score, 6),
@@ -535,6 +538,35 @@ def _luminance_ssim_score(left: np.ndarray, right: np.ndarray) -> float:
         return 0.0
     score = ((2.0 * left_mean * right_mean + c1) * (2.0 * covariance + c2)) / denominator
     return _clamp01(score)
+
+
+def _multiscale_luminance_ssim_score(left: np.ndarray, right: np.ndarray) -> float:
+    weights = (0.42, 0.28, 0.18, 0.12)
+    scores: list[float] = []
+    left_scale = left
+    right_scale = right
+    for _ in weights:
+        scores.append(_luminance_ssim_score(left_scale, right_scale))
+        if min(left_scale.shape[0], left_scale.shape[1]) < 16:
+            break
+        left_scale = _downsample_mean_2x(left_scale)
+        right_scale = _downsample_mean_2x(right_scale)
+
+    active_weights = weights[: len(scores)]
+    total_weight = sum(active_weights)
+    if total_weight <= 0:
+        return 0.0
+    score = sum(score * weight for score, weight in zip(scores, active_weights)) / total_weight
+    return _clamp01(score)
+
+
+def _downsample_mean_2x(array: np.ndarray) -> np.ndarray:
+    height = array.shape[0] - (array.shape[0] % 2)
+    width = array.shape[1] - (array.shape[1] % 2)
+    if height <= 0 or width <= 0:
+        return array
+    cropped = array[:height, :width, :]
+    return cropped.reshape(height // 2, 2, width // 2, 2, array.shape[2]).mean(axis=(1, 3))
 
 
 def _edge_feature_vector(array: np.ndarray) -> np.ndarray:

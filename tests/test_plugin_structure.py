@@ -82,6 +82,7 @@ def test_claude_skill_and_executable_are_present():
     assert "comparison-request.json" in skill_text
     assert "refine --critique" in skill_text
     assert "refinement_delta" in skill_text
+    assert "multiscale_luminance_ssim_score" in skill_text
     assert "--strong-size" in skill_text
     assert "complex planned scene" in skill_text
     assert "reference_palette" in skill_text
@@ -109,6 +110,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "critique-request.json" in readme
     assert "comparison-request.json" in readme
     assert "refinement_delta" in readme
+    assert "multiscale_luminance_ssim_score" in readme
     assert "aesthetic_score" in readme
     assert "--strong-size" in readme
     assert "complex planned scene" in readme
