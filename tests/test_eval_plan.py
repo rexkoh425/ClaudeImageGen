@@ -168,6 +168,101 @@ def test_pair_evaluation_plan_requires_minimum_judge_count_for_acceptance(tmp_pa
     assert "at least 2 Claude evaluations" in result.plan["acceptance_reason"]
 
 
+def test_pair_evaluation_plan_uses_local_pair_audit_evidence(tmp_path: Path):
+    from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
+
+    response_path = tmp_path / "pair-response.json"
+    audit_path = tmp_path / "pair-audit.json"
+    _write_pair_response(response_path)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "engine": "pair-local-audit-v1",
+                "flags": {
+                    "night_mood_preserved": False,
+                    "overbright_after": True,
+                    "detail_softening_risk": True,
+                    "highlight_clipping_risk": True,
+                    "haze_risk": True,
+                },
+                "suggested_parameters": {
+                    "night_luma_ceiling": 0.28,
+                    "mist_cap": 0.14,
+                    "highlight_rolloff": 0.2,
+                    "local_contrast": 1.15,
+                },
+                "recommendations": ["Local audit: after image is too bright for deep night."],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = build_eval_plan(
+        EvalPlanOptions(
+            evaluation=response_path,
+            audits=(audit_path,),
+            prompt="deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "plan",
+            quality_target=0.9,
+            min_evaluations=1,
+        )
+    )
+
+    assert result.plan["audit_count"] == 1
+    assert result.plan["local_audit_gate_met"] is False
+    assert result.plan["target_quality_met"] is False
+    assert result.plan["suggested_parameters"] == {
+        "night_luma_ceiling": 0.28,
+        "mist_cap": 0.14,
+        "highlight_rolloff": 0.2,
+        "local_contrast": 1.15,
+    }
+    assert "Local audit: after image is too bright for deep night." in result.plan["code_improvement_recommendations"]
+
+
+def test_pair_evaluation_plan_cannot_accept_when_local_audit_fails(tmp_path: Path):
+    from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
+
+    first_response = tmp_path / "accepting-response-1.json"
+    second_response = tmp_path / "accepting-response-2.json"
+    audit_path = tmp_path / "pair-audit.json"
+    _write_accepting_pair_response(first_response)
+    _write_accepting_pair_response(second_response)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "flags": {
+                    "night_mood_preserved": True,
+                    "overbright_after": False,
+                    "detail_softening_risk": False,
+                    "highlight_clipping_risk": True,
+                    "haze_risk": False,
+                },
+                "suggested_parameters": {"highlight_rolloff": 0.25},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = build_eval_plan(
+        EvalPlanOptions(
+            evaluations=(first_response, second_response),
+            audits=(audit_path,),
+            prompt="deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "plan",
+            quality_target=0.9,
+            min_evaluations=2,
+        )
+    )
+
+    assert result.plan["acceptance_consensus_met"] is True
+    assert result.plan["local_audit_gate_met"] is False
+    assert result.plan["target_quality_met"] is False
+    assert result.plan["next_action"] == "enhance-night"
+    assert "claude-imagegen enhance-night" in result.plan["recommended_command"]
+    assert "local pair audit" in result.plan["acceptance_reason"]
+
+
 def test_cli_eval_plan_writes_improvement_plan_without_images(tmp_path: Path):
     response_path = tmp_path / "pair-response.json"
     _write_pair_response(response_path)
@@ -238,3 +333,50 @@ def test_cli_eval_plan_accepts_multiple_evaluation_files_conservatively(tmp_path
     assert plan["evaluation_count"] == 2
     assert plan["acceptance_consensus_met"] is False
     assert plan["best_after_score"] == 0.86
+
+
+def test_cli_eval_plan_accepts_audit_file(tmp_path: Path):
+    response_path = tmp_path / "pair-response.json"
+    audit_path = tmp_path / "pair-audit.json"
+    _write_pair_response(response_path)
+    audit_path.write_text(
+        json.dumps(
+            {
+                "flags": {"night_mood_preserved": True, "highlight_clipping_risk": True},
+                "suggested_parameters": {"highlight_rolloff": 0.25},
+                "recommendations": ["Local audit detected highlight clipping."],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "plan"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "eval-plan",
+            "--evaluation",
+            str(response_path),
+            "--audit",
+            str(audit_path),
+            "--prompt",
+            "deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections",
+            "--output-dir",
+            str(output_dir),
+            "--quality-target",
+            "0.9",
+            "--min-evaluations",
+            "1",
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    plan = json.loads((output_dir / "improvement-plan.json").read_text(encoding="utf-8"))
+    assert plan["audit_count"] == 1
+    assert plan["suggested_parameters"]["highlight_rolloff"] == 0.25

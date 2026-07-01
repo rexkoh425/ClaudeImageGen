@@ -11,6 +11,7 @@ from .diffusion import DIFFUSION_PROFILE_NAMES, DiffusionOptions, generate_diffu
 from .enhance import EnhanceNightOptions, enhance_night_image
 from .eval_plan import EvalPlanOptions, build_eval_plan
 from .generator import GenerateOptions, generate_image
+from .pair_audit import PairAuditOptions, audit_pair
 from .refine import RefineOptions, refine_image
 from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
 
@@ -363,11 +364,28 @@ def build_parser() -> argparse.ArgumentParser:
     eval_plan.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/eval-plan"))
     eval_plan.add_argument("--quality-target", type=float, default=0.9)
     eval_plan.add_argument(
+        "--audit",
+        type=Path,
+        action="append",
+        help="Optional pair-audit JSON. Repeat to include local non-generative image metrics.",
+    )
+    eval_plan.add_argument(
         "--min-evaluations",
         type=int,
         default=2,
         help="Minimum Claude judge responses required before accepting the quality gate.",
     )
+
+    audit_pair_parser = subcommands.add_parser(
+        "audit-pair",
+        help="Compute local non-generative metrics for an existing before/after image pair.",
+    )
+    audit_pair_parser.add_argument("--before", type=Path, required=True, help="Existing before image.")
+    audit_pair_parser.add_argument("--after", type=Path, required=True, help="Existing after image.")
+    audit_pair_parser.add_argument("--prompt", required=True, help="Prompt the image pair should satisfy.")
+    audit_pair_parser.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/pair-audit"))
+    audit_pair_parser.add_argument("--quality-target", type=float, default=0.9)
+    audit_pair_parser.add_argument("--night-luma-ceiling", type=float, default=0.34)
 
     setup = subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
     setup.add_argument(
@@ -626,6 +644,7 @@ def main(argv: list[str] | None = None) -> int:
         result = build_eval_plan(
             EvalPlanOptions(
                 evaluations=tuple(args.evaluation),
+                audits=tuple(args.audit or ()),
                 prompt=args.prompt,
                 output_dir=args.output_dir,
                 quality_target=args.quality_target,
@@ -637,6 +656,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Score gap {result.plan['score_gap']}")
         if result.plan.get("recommended_command"):
             print(f"Recommended command {result.plan['recommended_command']}")
+        return 0
+
+    if args.command == "audit-pair":
+        result = audit_pair(
+            PairAuditOptions(
+                before_image=args.before,
+                after_image=args.after,
+                prompt=args.prompt,
+                output_dir=args.output_dir,
+                quality_target=args.quality_target,
+                night_luma_ceiling=args.night_luma_ceiling,
+            )
+        )
+        print(f"Pair audit {result.audit_path}")
+        print(f"Night preserved {result.audit['flags']['night_mood_preserved']}")
+        print(f"Overbright {result.audit['flags']['overbright_after']}")
+        print(f"Detail softening {result.audit['flags']['detail_softening_risk']}")
         return 0
 
     if args.command == "setup":

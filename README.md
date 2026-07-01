@@ -79,7 +79,9 @@ claude-imagegen pair-eval \
   --quality-target 0.9
 ```
 
-Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`, then run `claude-imagegen eval-plan --evaluation claude-response.json --prompt "<same prompt>" --output-dir claude-imagegen-output/greenhouse-plan --quality-target 0.9 --min-evaluations 2`. Repeat `--evaluation` with multiple Claude responses to keep the gate conservative when scores disagree.
+Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`. For local metric evidence, run `claude-imagegen audit-pair --before claude-imagegen-output/base/image.png --after claude-imagegen-output/refined/image.png --prompt "<same prompt>" --output-dir claude-imagegen-output/greenhouse-audit`.
+
+Then run `claude-imagegen eval-plan --evaluation claude-response.json --audit claude-imagegen-output/greenhouse-audit/pair-audit.json --prompt "<same prompt>" --output-dir claude-imagegen-output/greenhouse-plan --quality-target 0.9 --min-evaluations 2`. Repeat `--evaluation` with multiple Claude responses to keep the gate conservative when scores disagree.
 
 Do not claim GPT/Sora parity unless the after image scores at least `0.9` and the response marks the gate as met.
 
@@ -159,7 +161,7 @@ Open `verification-report.json` and check `image_summary`, `device_summary`, non
 
 `--quality-target 0.9` is a gate, not a promise. A run should only be accepted when local scores and `image_detail_score` are strong, Claude vision gives a high `closeness_score`, `quality-report.json` has `target_quality_met: true`, and GPT/Sora-level parity is not claimed unless an actual Claude visual judgement supports it.
 
-Current greenhouse testing on an RTX 5070 Ti improved through diffusion and postprocessing, but Claude pair-evaluation scored the best after image `0.84`, not `0.9`. Treat that as useful progress, not solved parity.
+Current greenhouse testing on an RTX 5070 Ti improved through diffusion and postprocessing, but repeated Claude pair-evaluation scored the best after image `0.83`, not `0.9`. Treat that as useful progress, not solved parity.
 
 ## Current Limits
 

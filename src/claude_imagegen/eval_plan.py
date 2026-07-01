@@ -14,6 +14,7 @@ class EvalPlanOptions:
     output_dir: Path
     evaluation: Path | None = None
     evaluations: tuple[Path, ...] = ()
+    audits: tuple[Path, ...] = ()
     quality_target: float = 0.9
     min_evaluations: int = 2
 
@@ -39,15 +40,22 @@ def build_eval_plan(options: EvalPlanOptions) -> EvalPlanResult:
     minimum_evaluations_met = len(samples) >= max(1, int(options.min_evaluations))
     acceptance_consensus_met = minimum_evaluations_met and all(bool(sample["gate_met"]) for sample in samples)
     parity = all(bool(sample["parity"]) for sample in samples)
-    target_quality_met = acceptance_consensus_met and parity
+    claude_quality_gate_met = acceptance_consensus_met and parity
     failure_modes: list[str] = []
     recommendations: list[str] = []
     for sample in samples:
         failure_modes.extend(_string_list(sample.get("failure_modes")))
         recommendations.extend(_string_list(sample.get("recommendations")))
+    audit_samples = [_audit_sample(path) for path in options.audits]
+    for audit in audit_samples:
+        failure_modes.extend(_audit_failure_modes(audit))
+        recommendations.extend(_string_list(audit.get("recommendations")))
 
     suggested_parameters = _suggest_enhance_parameters(failure_modes=failure_modes, recommendations=recommendations)
-    next_action = "accept" if target_quality_met and parity else "enhance-night"
+    suggested_parameters = _merge_audit_parameters(suggested_parameters, audit_samples)
+    local_audit_gate_met = all(bool(audit.get("gate_met")) for audit in audit_samples) if audit_samples else True
+    target_quality_met = claude_quality_gate_met and local_audit_gate_met
+    next_action = "accept" if target_quality_met else "enhance-night"
     best_after_image = str(conservative.get("best_after_image") or "")
     command = _enhance_command(
         input_image=best_after_image,
@@ -62,10 +70,13 @@ def build_eval_plan(options: EvalPlanOptions) -> EvalPlanResult:
         "evaluation": str(evaluation_paths[0]),
         "evaluations": [str(path) for path in evaluation_paths],
         "evaluation_count": len(samples),
+        "audits": [str(path) for path in options.audits],
+        "audit_count": len(audit_samples),
         "prompt": options.prompt,
         "quality_target": options.quality_target,
         "minimum_evaluations_required": max(1, int(options.min_evaluations)),
         "minimum_evaluations_met": minimum_evaluations_met,
+        "local_audit_gate_met": local_audit_gate_met,
         "target_quality_met": target_quality_met,
         "acceptance_consensus_met": acceptance_consensus_met,
         "gpt_sora_parity_boolean": parity,
@@ -91,6 +102,7 @@ def build_eval_plan(options: EvalPlanOptions) -> EvalPlanResult:
             target_quality_met=target_quality_met,
             parity=parity,
             acceptance_consensus_met=acceptance_consensus_met,
+            local_audit_gate_met=local_audit_gate_met,
             minimum_evaluations_met=minimum_evaluations_met,
             minimum_evaluations_required=max(1, int(options.min_evaluations)),
             evaluation_count=len(samples),
@@ -140,6 +152,60 @@ def _evaluation_sample(path: Path, *, quality_target: float) -> dict[str, object
         "recommendations": _string_list(data.get("code_improvement_recommendations"))
         + _string_list(best_pair.get("recommended_code_changes")),
     }
+
+
+def _audit_sample(path: Path) -> dict[str, object]:
+    data = _load_json_object(path)
+    flags = data.get("flags")
+    suggested = data.get("suggested_parameters")
+    gate_met = True
+    if isinstance(flags, dict):
+        gate_met = bool(flags.get("night_mood_preserved", True)) and not any(
+            bool(flags.get(name))
+            for name in ("overbright_after", "detail_softening_risk", "highlight_clipping_risk", "haze_risk")
+        )
+    return {
+        "path": str(path),
+        "flags": flags if isinstance(flags, dict) else {},
+        "suggested_parameters": suggested if isinstance(suggested, dict) else {},
+        "recommendations": _string_list(data.get("recommendations")),
+        "gate_met": gate_met,
+    }
+
+
+def _audit_failure_modes(audit: dict[str, object]) -> list[str]:
+    flags = audit.get("flags")
+    if not isinstance(flags, dict):
+        return []
+    failures: list[str] = []
+    if bool(flags.get("overbright_after")):
+        failures.append("local audit detected over-bright after image")
+    if bool(flags.get("haze_risk")):
+        failures.append("local audit detected haze or bloom washout")
+    if bool(flags.get("highlight_clipping_risk")):
+        failures.append("local audit detected highlight clipping")
+    if bool(flags.get("detail_softening_risk")):
+        failures.append("local audit detected detail softening")
+    return failures
+
+
+def _merge_audit_parameters(
+    parameters: dict[str, float],
+    audit_samples: list[dict[str, object]],
+) -> dict[str, float]:
+    merged = dict(parameters)
+    for audit in audit_samples:
+        suggested = audit.get("suggested_parameters")
+        if not isinstance(suggested, dict):
+            continue
+        for key in ("night_luma_ceiling", "mist_cap", "highlight_rolloff"):
+            value = _float_or_none(suggested.get(key))
+            if value is not None:
+                merged[key] = min(float(merged.get(key, value)), value)
+        value = _float_or_none(suggested.get("local_contrast"))
+        if value is not None:
+            merged["local_contrast"] = max(float(merged.get("local_contrast", value)), value)
+    return merged
 
 
 def _load_json_object(path: Path) -> dict[str, Any]:
@@ -212,6 +278,7 @@ def _acceptance_reason(
     target_quality_met: bool,
     parity: bool,
     acceptance_consensus_met: bool,
+    local_audit_gate_met: bool,
     minimum_evaluations_met: bool,
     minimum_evaluations_required: int,
     evaluation_count: int,
@@ -231,6 +298,8 @@ def _acceptance_reason(
             "Do not accept: multiple Claude evaluations disagree or at least one response failed the gate; "
             f"conservative after_score is {best_after_score:.2f}."
         )
+    if not local_audit_gate_met:
+        return "Do not accept: local pair audit found brightness, haze, clipping, or detail risks."
     return (
         f"Do not accept: after_score {best_after_score:.2f} is below target {quality_target:.2f} "
         f"by {score_gap:.2f}, or GPT/Sora parity is false."
