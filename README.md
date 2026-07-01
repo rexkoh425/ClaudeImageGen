@@ -90,7 +90,7 @@ If Claude says the improved image is too bright or hazy for deep night, run a da
 ```bash
 claude-imagegen enhance-night --input-image claude-imagegen-output/refined/image.png \
   --prompt "deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections" \
-  --output-dir claude-imagegen-output/refined-night --quality-target 0.9 --shadow-lift 0.08
+  --output-dir claude-imagegen-output/refined-night --quality-target 0.9 --shadow-lift 0.08 --foliage-clarity 0.35
 ```
 
 `enhance-night` writes a new `image.png`, `metadata.json`, and `pair-evaluation-request.json`; Claude must still score the before/after pair before acceptance.

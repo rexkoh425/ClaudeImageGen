@@ -248,6 +248,34 @@ def test_pair_evaluation_plan_recommends_shadow_lift_for_crushed_shadows(tmp_pat
     assert "--shadow-lift 0.08" in result.plan["recommended_command"]
 
 
+def test_pair_evaluation_plan_recommends_foliage_clarity_for_soft_leaf_veins(tmp_path: Path):
+    from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
+
+    response_path = tmp_path / "pair-response.json"
+    _write_pair_response(response_path)
+    data = json.loads(response_path.read_text(encoding="utf-8"))
+    data["pair_scores"][0]["failure_modes"].append("soft leaf veins outside the foreground foliage")
+    data["pair_scores"][0]["recommended_code_changes"].append(
+        "apply foliage-targeted clarity to sharpen leaf veins without brightening lamps or floor noise"
+    )
+    data["overall_failure_modes"].append("missing sharp leaf veins on midground foliage")
+    data["code_improvement_recommendations"].append("add green-foliage masked detail sharpening")
+    response_path.write_text(json.dumps(data), encoding="utf-8")
+
+    result = build_eval_plan(
+        EvalPlanOptions(
+            evaluation=response_path,
+            prompt="deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "plan",
+            quality_target=0.9,
+            min_evaluations=1,
+        )
+    )
+
+    assert result.plan["suggested_parameters"]["foliage_clarity"] == 0.35
+    assert "--foliage-clarity 0.35" in result.plan["recommended_command"]
+
+
 def test_pair_evaluation_plan_cannot_accept_when_local_audit_fails(tmp_path: Path):
     from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
 

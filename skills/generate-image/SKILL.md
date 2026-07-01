@@ -98,7 +98,8 @@ claude-imagegen enhance-night \
   --prompt "<user prompt>" \
   --output-dir "claude-imagegen-output/<refined>-night" \
   --quality-target 0.9 \
-  --shadow-lift 0.08
+  --shadow-lift 0.08 \
+  --foliage-clarity 0.35
 ```
 
 Then open the new `pair-evaluation-request.json` and compare the before/after images. Do not accept the enhanced image unless Claude's response says the night mood is preserved and the after image reaches the requested gate.

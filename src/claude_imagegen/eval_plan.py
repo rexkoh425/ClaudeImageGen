@@ -237,6 +237,7 @@ def _suggest_enhance_parameters(*, failure_modes: list[str], recommendations: li
     highlight_rolloff = 0.35
     local_contrast = 0.9
     shadow_lift = 0.0
+    foliage_clarity = 0.0
     if any(term in text for term in ("over-bright", "bright", "dusk", "twilight", "night-mood drift")):
         night_luma_ceiling = 0.3
     if any(term in text for term in ("haze", "mist", "bloom", "veil")):
@@ -255,6 +256,10 @@ def _suggest_enhance_parameters(*, failure_modes: list[str], recommendations: li
         shadow_lift = 0.08
     if shadow_lift > 0:
         parameters["shadow_lift"] = shadow_lift
+    if any(term in text for term in ("leaf vein", "leaf veins", "vein", "foliage", "green-foliage", "foliage-targeted", "sharpen")):
+        foliage_clarity = 0.35
+    if foliage_clarity > 0:
+        parameters["foliage_clarity"] = foliage_clarity
     return parameters
 
 
@@ -280,6 +285,9 @@ def _enhance_command(
     shadow_lift = _float_or_none(parameters.get("shadow_lift"))
     if shadow_lift is not None and shadow_lift > 0:
         command = f"{command} --shadow-lift {shadow_lift:g}"
+    foliage_clarity = _float_or_none(parameters.get("foliage_clarity"))
+    if foliage_clarity is not None and foliage_clarity > 0:
+        command = f"{command} --foliage-clarity {foliage_clarity:g}"
     return command
 
 

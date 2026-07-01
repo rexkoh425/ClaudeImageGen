@@ -349,6 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
     enhance_night.add_argument("--highlight-rolloff", type=float, default=0.35)
     enhance_night.add_argument("--local-contrast", type=float, default=0.9)
     enhance_night.add_argument("--shadow-lift", type=float, default=0.0)
+    enhance_night.add_argument("--foliage-clarity", type=float, default=0.0)
 
     eval_plan = subcommands.add_parser(
         "eval-plan",
@@ -633,6 +634,7 @@ def main(argv: list[str] | None = None) -> int:
                 highlight_rolloff=args.highlight_rolloff,
                 local_contrast=args.local_contrast,
                 shadow_lift=args.shadow_lift,
+                foliage_clarity=args.foliage_clarity,
             )
         )
         print(f"Enhanced {result.image_path}")

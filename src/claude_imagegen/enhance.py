@@ -22,6 +22,7 @@ class EnhanceNightOptions:
     highlight_rolloff: float = 0.35
     local_contrast: float = 0.9
     shadow_lift: float = 0.0
+    foliage_clarity: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
     arr = _reduce_mist_veil(arr, cap=options.mist_cap)
     arr = _rolloff_highlights(arr, rolloff=options.highlight_rolloff)
     arr = _lift_crushed_shadows(arr, amount=options.shadow_lift)
+    arr = _apply_foliage_clarity(arr, amount=options.foliage_clarity)
     arr = _enforce_luma_ceiling(arr, ceiling=options.night_luma_ceiling)
     arr = _boost_lower_half_contrast(arr, amount=options.local_contrast * 0.45)
     arr = _enforce_luma_ceiling(arr, ceiling=options.night_luma_ceiling)
@@ -74,6 +76,7 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
         "highlight_rolloff": options.highlight_rolloff,
         "local_contrast": options.local_contrast,
         "shadow_lift": options.shadow_lift,
+        "foliage_clarity": options.foliage_clarity,
         "before_mean_luma": before_stats["mean_luma"],
         "before_max_luma": before_stats["max_luma"],
         "before_lower_luma_std": before_stats["lower_luma_std"],
@@ -86,7 +89,7 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
         "revision_hints": [
             "Use pair-evaluation-request.json with Claude vision before accepting a 0.9 target.",
             "If Claude still reports night-mood drift, lower night_luma_ceiling or mist_cap.",
-            "If floor or leaf detail remains weak, raise local_contrast or shadow_lift conservatively.",
+            "If floor or leaf detail remains weak, raise local_contrast, shadow_lift, or foliage_clarity conservatively.",
         ],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -161,6 +164,26 @@ def _lift_crushed_shadows(arr: np.ndarray, *, amount: float) -> np.ndarray:
     desaturation = np.clip(mask * lift * 4.0, 0.0, 0.9)
     neutral = np.repeat(target_luma[..., None], 3, axis=2)
     return np.clip((lifted * (1.0 - desaturation[..., None])) + (neutral * desaturation[..., None]), 0.0, 1.0)
+
+
+def _apply_foliage_clarity(arr: np.ndarray, *, amount: float) -> np.ndarray:
+    clarity = max(0.0, min(1.25, float(amount)))
+    if clarity <= 0:
+        return np.clip(arr, 0.0, 1.0)
+    red = arr[:, :, 0]
+    green = arr[:, :, 1]
+    blue = arr[:, :, 2]
+    luma = _luma(arr)
+    green_dominance = green - np.maximum(red, blue)
+    green_mask = np.clip(green_dominance / 0.12, 0.0, 1.0)
+    luma_mask = np.clip((luma - 0.05) / 0.12, 0.0, 1.0) * np.clip((0.62 - luma) / 0.24, 0.0, 1.0)
+    mask = green_mask * luma_mask
+    if not np.any(mask > 0.01):
+        return np.clip(arr, 0.0, 1.0)
+    image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
+    blurred = np.asarray(image.filter(ImageFilter.GaussianBlur(radius=1.1)), dtype=np.float32) / 255.0
+    sharpened = np.clip(arr + ((arr - blurred) * clarity * 1.15), 0.0, 1.0)
+    return np.clip((arr * (1.0 - mask[..., None])) + (sharpened * mask[..., None]), 0.0, 1.0)
 
 
 def _enforce_luma_ceiling(arr: np.ndarray, *, ceiling: float) -> np.ndarray:
