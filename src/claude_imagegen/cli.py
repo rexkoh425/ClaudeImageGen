@@ -9,6 +9,7 @@ import sys
 from .critique import write_pair_evaluation_request
 from .diffusion import DIFFUSION_PROFILE_NAMES, DiffusionOptions, generate_diffusion_image
 from .enhance import EnhanceNightOptions, enhance_night_image
+from .eval_plan import EvalPlanOptions, build_eval_plan
 from .generator import GenerateOptions, generate_image
 from .refine import RefineOptions, refine_image
 from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
@@ -347,6 +348,21 @@ def build_parser() -> argparse.ArgumentParser:
     enhance_night.add_argument("--highlight-rolloff", type=float, default=0.35)
     enhance_night.add_argument("--local-contrast", type=float, default=0.9)
 
+    eval_plan = subcommands.add_parser(
+        "eval-plan",
+        help="Turn a Claude pair-evaluation response into a concrete next-step improvement plan.",
+    )
+    eval_plan.add_argument(
+        "--evaluation",
+        type=Path,
+        action="append",
+        required=True,
+        help="Claude-filled pair evaluation JSON. Repeat to aggregate multiple judge passes conservatively.",
+    )
+    eval_plan.add_argument("--prompt", required=True, help="Prompt the image pair should satisfy.")
+    eval_plan.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/eval-plan"))
+    eval_plan.add_argument("--quality-target", type=float, default=0.9)
+
     setup = subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
     setup.add_argument(
         "--with-diffusion",
@@ -598,6 +614,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Mean luma {result.metadata['before_mean_luma']} -> {result.metadata['after_mean_luma']}")
         print(f"Lower contrast {result.metadata['before_lower_luma_std']} -> {result.metadata['after_lower_luma_std']}")
         print(f"Pair evaluation request {result.pair_evaluation_request_path}")
+        return 0
+
+    if args.command == "eval-plan":
+        result = build_eval_plan(
+            EvalPlanOptions(
+                evaluations=tuple(args.evaluation),
+                prompt=args.prompt,
+                output_dir=args.output_dir,
+                quality_target=args.quality_target,
+            )
+        )
+        print(f"Improvement plan {result.plan_path}")
+        print(f"Next action {result.plan['next_action']}")
+        print(f"Score gap {result.plan['score_gap']}")
+        if result.plan.get("recommended_command"):
+            print(f"Recommended command {result.plan['recommended_command']}")
         return 0
 
     if args.command == "setup":

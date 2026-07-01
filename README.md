@@ -79,7 +79,9 @@ claude-imagegen pair-eval \
   --quality-target 0.9
 ```
 
-Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`. Do not claim GPT/Sora parity unless the after image scores at least `0.9` and the response marks the gate as met.
+Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`, then run `claude-imagegen eval-plan --evaluation claude-response.json --prompt "<same prompt>" --output-dir claude-imagegen-output/greenhouse-plan --quality-target 0.9`. Repeat `--evaluation` with multiple Claude responses to keep the gate conservative when scores disagree.
+
+Do not claim GPT/Sora parity unless the after image scores at least `0.9` and the response marks the gate as met.
 
 If Claude says the improved image is too bright or hazy for deep night, run a dark-preserving local postprocess:
 
@@ -104,7 +106,7 @@ claude-imagegen refine \
   --max-iterations 8
 ```
 
-For visual feedback loops, fill `critique-request.json` as `critique.json`, then pass it back with `refine --critique claude-imagegen-output/demo/critique.json`.
+For visual feedback loops, fill `critique-request.json` as `critique.json`, then pass it back with `refine --critique`.
 
 ## Outputs
 
@@ -117,7 +119,7 @@ Each run writes:
 - `comparison-request.json`: refine-only parent/child comparison request.
 - `pair-evaluation-request.json`: before/after scoring request created by `pair-eval`.
 - `candidates/`, `candidates.json`, and `candidates/contact-sheet.png`: alternatives.
-- `verification-report.json`: created by `verify`, with nonblank image checks and CPU/GPU device evidence.
+- `verification-report.json`: created by `verify`, with image/device evidence.
 
 ## Verify
 
@@ -125,14 +127,10 @@ Each run writes:
 python -m pytest
 ```
 
-Run the plugin checks:
-
 ```bash
 claude plugin validate . --strict
 claude plugin validate .claude-plugin/marketplace.json --strict
 ```
-
-Run the built-in smoke suite:
 
 ```bash
 claude-imagegen verify \
@@ -155,7 +153,7 @@ claude-imagegen verify \
   --caption-similarity-backend transformers-sentence
 ```
 
-Open `verification-report.json` and check `image_summary`, `device_summary`, per-case artifacts, nonblank status, and failed case details.
+Open `verification-report.json` and check `image_summary`, `device_summary`, nonblank artifacts, and failed case details.
 
 ## Quality Target
 

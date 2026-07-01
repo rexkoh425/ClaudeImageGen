@@ -86,6 +86,8 @@ claude-imagegen pair-eval \
 
 Open `pair-evaluation-request.json` and fill its `expected_response`; the gate fails unless the best after image reaches `0.9`, detail is strong, and GPT/Sora parity is visually plausible.
 
+After writing Claude's pair-evaluation response, run `claude-imagegen eval-plan --evaluation <response.json> --prompt "<user prompt>" --output-dir "claude-imagegen-output/<short-slug>-plan" --quality-target 0.9` to convert the score and failure modes into the next local command. If you have multiple Claude judge passes, repeat `--evaluation`; the planner uses the conservative score and keeps the gate closed when judges disagree. Follow the plan only if it keeps the acceptance gate closed below `0.9`.
+
 If Claude vision says the refined image improved detail but became too bright, hazy, or dusk-like for a deep-night prompt, run the dark-preserving local postprocess before another evaluation:
 
 ```bash
