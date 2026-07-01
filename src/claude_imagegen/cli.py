@@ -6,7 +6,8 @@ from pathlib import Path
 import platform
 import sys
 
-from .diffusion import DiffusionOptions, generate_diffusion_image
+from .critique import write_pair_evaluation_request
+from .diffusion import DIFFUSION_PROFILE_NAMES, DiffusionOptions, generate_diffusion_image
 from .generator import GenerateOptions, generate_image
 from .refine import RefineOptions, refine_image
 from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
@@ -122,11 +123,17 @@ def build_parser() -> argparse.ArgumentParser:
     diffuse.add_argument("--prompt", required=True, help="Text prompt to generate.")
     diffuse.add_argument("--negative-prompt", help="Negative prompt for the diffusion model.")
     diffuse.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/diffusion"))
-    diffuse.add_argument("--model", default="stabilityai/sdxl-turbo", help="Diffusers text-to-image model id/path.")
+    diffuse.add_argument("--model", help="Diffusers text-to-image model id/path; defaults come from --profile.")
+    diffuse.add_argument(
+        "--profile",
+        choices=DIFFUSION_PROFILE_NAMES,
+        default="turbo",
+        help="Local generation profile. Use night-photoreal for detailed deep-night photoreal attempts.",
+    )
     diffuse.add_argument("--width", type=int, default=1024)
     diffuse.add_argument("--height", type=int, default=768)
-    diffuse.add_argument("--steps", type=int, default=4)
-    diffuse.add_argument("--guidance-scale", type=float, default=0.0)
+    diffuse.add_argument("--steps", type=int, help="Override the profile's diffusion step count.")
+    diffuse.add_argument("--guidance-scale", type=float, help="Override the profile's classifier-free guidance scale.")
     diffuse.add_argument(
         "--seeds",
         type=_parse_seed_list,
@@ -143,6 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--quality-target",
         type=float,
         help="Optional acceptance target; 0.9 still requires Claude visual critique of image.png.",
+    )
+    diffuse.add_argument(
+        "--prompt-focus",
+        type=_parse_csv_list,
+        default=("auto",),
+        help="Comma-separated prompt-critical terms for candidate ranking; default auto derives terms from prompt.",
     )
 
     refine = subcommands.add_parser("refine", help="Refine from a previous claude-imagegen output directory.")
@@ -308,6 +321,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("--caption-similarity-model", help="Optional semantic prompt/caption similarity model id/path.")
 
+    pair_eval = subcommands.add_parser(
+        "pair-eval",
+        help="Write a Claude vision request for scoring existing before/after image pairs without generating images.",
+    )
+    pair_eval.add_argument("--prompt", required=True, help="Prompt the images should satisfy.")
+    pair_eval.add_argument("--before", type=Path, action="append", required=True, help="Existing before image. Repeat with --after.")
+    pair_eval.add_argument("--after", type=Path, action="append", required=True, help="Existing after image. Repeat with --before.")
+    pair_eval.add_argument("--pair-id", action="append", help="Optional id for each before/after pair.")
+    pair_eval.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/pair-eval"))
+    pair_eval.add_argument("--quality-target", type=float, default=0.9)
+    pair_eval.add_argument("--notes", default="", help="Optional context for Claude's evaluator request.")
+
     setup = subcommands.add_parser("setup", help="Check first-run dependencies and print setup status.")
     setup.add_argument(
         "--with-diffusion",
@@ -369,9 +394,9 @@ def main(argv: list[str] | None = None) -> int:
             DiffusionOptions(
                 prompt=args.prompt,
                 output_dir=args.output_dir,
-                negative_prompt=args.negative_prompt
-                or "cartoon, illustration, painting, CGI, vector art, low detail, blurry, flat lighting, deformed architecture, people, text, watermark",
+                negative_prompt=args.negative_prompt,
                 model=args.model,
+                profile=args.profile,
                 width=args.width,
                 height=args.height,
                 steps=args.steps,
@@ -379,12 +404,15 @@ def main(argv: list[str] | None = None) -> int:
                 seeds=args.seeds,
                 device=args.device,
                 quality_target=args.quality_target,
+                prompt_focus=args.prompt_focus,
             )
         )
         print(f"Generated {result.image_path}")
         print(f"Metadata {result.metadata_path}")
         print(f"Quality {result.metadata['quality_status']} {result.metadata['quality_score']} ({result.metadata['quality_report']})")
+        print(f"Profile {result.metadata['diffusion_profile']} model {result.metadata['model']}")
         print(f"Selected seed {result.metadata['selected_seed']} on {result.metadata['effective_device']}")
+        print(f"Prompt signal {result.metadata['prompt_signal_score']} terms {', '.join(result.metadata['prompt_focus_terms'])}")
         if result.metadata.get("prompt_length_warning"):
             print(f"Warning {result.metadata['prompt_length_warning']}")
         print(f"Candidates {result.candidates_path}")
@@ -513,6 +541,31 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Case {case['type']} {case['status']} {case['size']} {case.get('quality_status', 'none')} {case['output_dir']}")
         return 0 if report["status"] == "pass" else 1
 
+    if args.command == "pair-eval":
+        if len(args.before) != len(args.after):
+            parser.error("--before and --after must be supplied the same number of times")
+        pair_ids = args.pair_id or []
+        if pair_ids and len(pair_ids) != len(args.before):
+            parser.error("--pair-id must be supplied once per --before/--after pair")
+        pairs = [
+            {
+                "id": pair_ids[index] if pair_ids else f"pair-{index + 1}",
+                "before_image": str(before),
+                "after_image": str(after),
+            }
+            for index, (before, after) in enumerate(zip(args.before, args.after))
+        ]
+        request_path = write_pair_evaluation_request(
+            args.output_dir,
+            prompt=args.prompt,
+            pairs=pairs,
+            quality_target=args.quality_target,
+            notes=args.notes,
+        )
+        print(f"Pair evaluation request {request_path}")
+        print("Open this JSON with Claude vision and fill expected_response before claiming 0.9 quality.")
+        return 0
+
     if args.command == "setup":
         status = _setup_status(include_diffusion=args.with_diffusion)
         print("claude-imagegen setup ok" if status["ready"] else "claude-imagegen setup incomplete")
@@ -548,6 +601,13 @@ def _parse_seed_list(value: str) -> tuple[int, ...]:
     if not seeds:
         raise argparse.ArgumentTypeError("at least one seed is required")
     return seeds
+
+
+def _parse_csv_list(value: str) -> tuple[str, ...]:
+    items = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not items:
+        raise argparse.ArgumentTypeError("value must contain at least one item")
+    return items
 
 
 def _setup_status(*, include_diffusion: bool = False) -> dict[str, object]:

@@ -2,7 +2,7 @@
 
 Claude ImageGen is a Claude Code plugin for making local PNG images.
 
-Default mode is lightweight and CPU-first. For higher-detail images, use the optional local GPU Diffusers backend. Claude can critique and refine prompts, but Claude does not become the image model; the actual photoreal image work needs a local image model such as SDXL Turbo.
+The default path is lightweight and CPU-first. For stronger photoreal detail, install the optional local Diffusers/Torch backend and use your own CPU/GPU. Claude can plan, critique, compare, and refine, but Claude is not the image model.
 
 ## Install In Claude Code
 
@@ -16,12 +16,6 @@ On another machine, install Claude Code, sign in to GitHub if this repo is priva
 ```
 
 Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded.
-
-Check the base setup:
-
-```bash
-claude-imagegen setup
-```
 
 ## Easier Local Setup
 
@@ -55,11 +49,12 @@ For better CPU results, ask Claude Code to use the `generate-image` skill for a 
 
 ## Higher-Detail GPU Image
 
-After installing the diffusion extra:
+After installing the diffusion extra, use the photoreal profile for detailed night scenes:
 
 ```bash
 claude-imagegen diffuse \
-  --prompt "photorealistic cinematic glass greenhouse interior at deep night, crisp steel mullions, tropical plants with sharp leaf veins, warm tungsten hanging lamps, volumetric mist, wet black stone floor with mirror reflections, no people" \
+  --profile night-photoreal \
+  --prompt "deep night glass greenhouse interior, tropical plants with sharp leaf veins, warm tungsten hanging lamps, volumetric mist, wet black stone floor with mirror reflections, no people" \
   --output-dir claude-imagegen-output/greenhouse-gpu \
   --width 1024 \
   --height 768 \
@@ -68,9 +63,23 @@ claude-imagegen diffuse \
   --quality-target 0.9
 ```
 
-`diffuse` writes multiple candidates, selects the strongest local candidate, and creates `candidates/contact-sheet.png`. Open `image.png` and `critique-request.json` with Claude vision before accepting a `0.9` target.
+`diffuse` writes multiple candidates, selects the strongest prompt-aware local candidate, and creates `candidates/contact-sheet.png`. Open `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting a `0.9` target. Keep prompts concise; `metadata.json` records `prompt_length_warning` when SDXL-style text limits may truncate later details.
 
-Keep diffusion prompts concise and put the most important details first; `metadata.json` records `prompt_length_warning` when SDXL-style text limits may truncate later details.
+## Pair Evaluation
+
+Use this when comparing a raw image and an improved image. It does not generate anything; it writes the JSON request Claude should fill after opening both images.
+
+```bash
+claude-imagegen pair-eval \
+  --prompt "deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections" \
+  --before claude-imagegen-output/base/image.png \
+  --after claude-imagegen-output/refined/image.png \
+  --pair-id greenhouse-v1 \
+  --output-dir claude-imagegen-output/greenhouse-eval \
+  --quality-target 0.9
+```
+
+Open `pair-evaluation-request.json` with Claude vision and fill its `expected_response`. Do not claim GPT/Sora parity unless the after image scores at least `0.9` and the response marks the gate as met.
 
 ## Refinement
 
@@ -97,14 +106,15 @@ claude-imagegen refine \
 
 ## Outputs
 
-Each run writes the main artifacts into the output directory:
+Each run writes:
 
 - `image.png`: selected output image.
 - `metadata.json`: prompt, settings, scores, selected seed or candidate, and refinement hints.
 - `quality-report.json`: readiness report with concrete `next_actions`.
 - `critique-request.json`: visual checklist for Claude Code to fill after inspecting `image.png`.
 - `comparison-request.json`: refine-only parent/child comparison request.
-- `candidates/`, `candidates.json`, and `candidates/contact-sheet.png`: alternatives for candidate-based generation.
+- `pair-evaluation-request.json`: before/after scoring request created by `pair-eval`.
+- `candidates/`, `candidates.json`, and `candidates/contact-sheet.png`: alternatives.
 - `verification-report.json`: created by `verify`, with nonblank image checks and CPU/GPU device evidence.
 
 ## Verify
@@ -145,22 +155,13 @@ claude-imagegen verify \
   --caption-similarity-backend transformers-sentence
 ```
 
-Open `verification-report.json` and check:
-
-- `image_summary`: confirms generated images are nonblank.
-- `device_summary`: reports which CPU or GPU devices were used.
-- per-case artifacts: include image, metadata, quality report, critique request, and comparison request when relevant.
+Open `verification-report.json` and check `image_summary`, `device_summary`, per-case artifacts, nonblank status, and failed case details.
 
 ## Quality Target
 
-`--quality-target 0.9` is a gate, not a promise. A run should only be accepted when:
+`--quality-target 0.9` is a gate, not a promise. A run should only be accepted when local scores and `image_detail_score` are strong, Claude vision gives a high `closeness_score`, `quality-report.json` has `target_quality_met: true`, and GPT/Sora-level parity is not claimed unless an actual Claude visual judgement supports it.
 
-- local scores and `image_detail_score` are strong,
-- Claude vision opens the PNG and gives a high `closeness_score`,
-- `quality-report.json` has `target_quality_met: true`,
-- GPT/Sora-level parity is not claimed unless an actual Claude visual judgement supports it.
-
-In local testing on an RTX 5070 Ti, SDXL Turbo produced a much stronger greenhouse image than the CPU renderer, but Claude vision scored the best candidate `0.83`, not `0.9`. Treat that as improved quality, not solved parity.
+Current greenhouse testing on an RTX 5070 Ti improved through diffusion and postprocessing, but Claude pair-evaluation scored the best after image `0.84`, not `0.9`. Treat that as useful progress, not solved parity.
 
 ## Current Limits
 

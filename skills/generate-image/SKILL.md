@@ -41,11 +41,11 @@ VQAScore idea, run locally with no API. The canonical CPU loop is:
 
 ## High-quality multi-refinement mode
 
-When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. If optional Diffusers/Torch dependencies are available and the user wants photoreal detail, prefer `claude-imagegen diffuse` first, then have Claude vision judge the PNG. Otherwise use the CPU scene-plan loop with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
+When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. If optional Diffusers/Torch dependencies are available and the user wants photoreal detail, prefer `claude-imagegen diffuse --profile night-photoreal` first, then have Claude vision judge the PNG. Otherwise use the CPU scene-plan loop with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
 
 For these runs, set `"style"` with `"detail"` and `"sharpen"` in addition to color grade controls, and make the scene plan visibly dense: use foreground/midground/background separation, materials, textures, shadows, veils, reflections, and small motif detail. Prefer 2-4 refinement rounds with `--save-candidates 4`; do not keep increasing local iterations if Claude vision says the composition is wrong.
 
-Do not claim GPT/Sora parity just because local checks improved. If the user asks for GPT/Sora-level quality, ask Claude vision to judge the PNG directly and report the score honestly; a low `closeness_score` or `sora_gpt_parity: false` means the gate failed. The CPU renderer can produce structured illustrations; photoreal attempts should use an actual image model through `diffuse` or another image-generation backend.
+Do not claim GPT/Sora parity just because local checks improved. If the user asks for GPT/Sora-level quality, ask Claude vision to judge the PNG directly and report the score honestly; a low `closeness_score` or `sora_gpt_parity: false` means the gate failed. When comparing a raw output with a refined output, use `claude-imagegen pair-eval` to write `pair-evaluation-request.json`, open the before/after images with Claude vision, and fill its `expected_response` before accepting the result. The CPU renderer can produce structured illustrations; photoreal attempts should use an actual image model through `diffuse` or another image-generation backend.
 
 Useful semantic object types for indoor/detail scenes include `"greenhouse"`, `"plant"`, `"lamp"`, and `"floor"` in addition to the older `"sun"`, `"moon"`, `"cloud"`, `"ocean"`, `"mountain"`, `"forest"`, `"building"`, `"portrait"`, and `"robot"` objects. Use `"veils"` for mist/fog and `"clouds"` only when the prompt explicitly asks for clouds; use `"moon"` only when a visible moon is explicitly requested.
 
@@ -60,6 +60,7 @@ For photoreal local GPU attempts after diffusion setup, use:
 
 ```bash
 claude-imagegen diffuse \
+  --profile night-photoreal \
   --prompt "<user prompt>" \
   --output-dir "claude-imagegen-output/<short-slug>-gpu" \
   --width 1024 \
@@ -70,6 +71,20 @@ claude-imagegen diffuse \
 ```
 
 Then inspect `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting the result.
+
+For before/after scoring without generating a new image, use:
+
+```bash
+claude-imagegen pair-eval \
+  --prompt "<user prompt>" \
+  --before "claude-imagegen-output/<base>/image.png" \
+  --after "claude-imagegen-output/<refined>/image.png" \
+  --pair-id "<short-slug>" \
+  --output-dir "claude-imagegen-output/<short-slug>-eval" \
+  --quality-target 0.9
+```
+
+Open `pair-evaluation-request.json` and fill its `expected_response`; the gate fails unless the best after image reaches `0.9`, detail is strong, and GPT/Sora parity is visually plausible.
 
 `critique.json` schema (all fields optional except `closeness_score`):
 

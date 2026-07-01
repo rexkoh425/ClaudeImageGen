@@ -122,6 +122,48 @@ def write_comparison_request(
     return request_path
 
 
+def write_pair_evaluation_request(
+    output_dir: Path,
+    *,
+    prompt: str,
+    pairs: list[dict[str, str]],
+    quality_target: float = 0.9,
+    notes: str = "",
+) -> Path:
+    """Write a Claude-vision request for scoring existing before/after image pairs."""
+    if not prompt.strip():
+        raise ValueError("prompt must not be empty")
+    if not pairs:
+        raise ValueError("at least one image pair is required")
+    normalized_pairs: list[dict[str, str]] = []
+    for index, pair in enumerate(pairs, start=1):
+        pair_id = str(pair.get("id") or f"pair-{index}").strip()
+        before = Path(str(pair.get("before_image") or ""))
+        after = Path(str(pair.get("after_image") or ""))
+        if not before.exists():
+            raise FileNotFoundError(f"before image does not exist: {before}")
+        if not after.exists():
+            raise FileNotFoundError(f"after image does not exist: {after}")
+        normalized_pairs.append(
+            {
+                "id": pair_id,
+                "before_image": str(before),
+                "after_image": str(after),
+            }
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    request_path = output_dir / "pair-evaluation-request.json"
+    request = build_pair_evaluation_request(
+        prompt=prompt,
+        pairs=normalized_pairs,
+        quality_target=quality_target,
+        notes=notes,
+    )
+    request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
+    return request_path
+
+
 def build_critique_request(
     *,
     image_path: Path,
@@ -219,6 +261,58 @@ def build_comparison_request(
             "regressions": [],
             "follow_up_edits": [],
             "notes": "",
+        },
+    }
+
+
+def build_pair_evaluation_request(
+    *,
+    prompt: str,
+    pairs: list[dict[str, str]],
+    quality_target: float = 0.9,
+    notes: str = "",
+) -> dict[str, Any]:
+    """Build a stable Claude-vision request for unbiased before/after scoring."""
+    expected_pair_scores = [
+        {
+            "id": pair["id"],
+            "before_score": None,
+            "after_score": None,
+            "detail_score": None,
+            "winner": "after",
+            "parity_boolean": False,
+            "missing_after": [],
+            "wrong_after": [],
+            "extra_after": [],
+            "failure_modes": [],
+            "recommended_code_changes": [],
+            "notes": "",
+        }
+        for pair in pairs
+    ]
+    return {
+        "judge": "claude-vision-pair-evaluation",
+        "instructions": (
+            "Open each before_image and after_image pair side by side. Score prompt closeness from 0 to 1, "
+            "score visual detail from 0 to 1, and choose the winner without favoring newer outputs. "
+            "The acceptance gate is strict: after_score must be at least quality_target, detail evidence "
+            "must be strong, and GPT/Sora parity must be visually plausible. Write only JSON matching "
+            "expected_response."
+        ),
+        "prompt": prompt,
+        "quality_target": float(quality_target),
+        "pairs": pairs,
+        "notes": notes,
+        "expected_response": {
+            "pair_scores": expected_pair_scores,
+            "best_pair_id": pairs[0]["id"],
+            "best_after_image": pairs[0]["after_image"],
+            "gpt_sora_parity_score": None,
+            "gpt_sora_parity_boolean": False,
+            "acceptance_gate_met": False,
+            "overall_failure_modes": [],
+            "code_improvement_recommendations": [],
+            "unbiased_notes": "",
         },
     }
 

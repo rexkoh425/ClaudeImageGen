@@ -292,11 +292,23 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
             seed = (101, 202)[call_index]
             width = int(kwargs["width"])
             height = int(kwargs["height"])
-            image = Image.new("RGB", (width, height), (18 + seed % 100, 70, 96))
-            for x in range(width):
-                shade = min(255, 30 + (x * 180 // max(1, width - 1)))
-                for y in range(0, height, 8):
-                    image.putpixel((x, y), (shade, 180 - (seed % 40), 92))
+            if seed == 202:
+                image = Image.new("RGB", (width, height), (9, 18, 20))
+                for x in range(8, width - 8, 16):
+                    for y in range(12, height - 8):
+                        image.putpixel((x, y), (20, 140, 42))
+                for x in range(width // 3, width // 3 + 8):
+                    for y in range(height // 5, height // 5 + 8):
+                        image.putpixel((x, y), (245, 168, 70))
+                for x in range(0, width):
+                    y = int((height * 0.62) + ((x - width / 2) * 0.12))
+                    if 0 <= y < height:
+                        image.putpixel((x, y), (215, 185, 125))
+            else:
+                image = Image.new("RGB", (width, height), (128, 128, 128))
+                for x in range(0, width, 12):
+                    for y in range(height):
+                        image.putpixel((x, y), (180, 180, 180))
             return SimpleNamespace(images=[image])
 
     fake_pipeline = FakePipeline()
@@ -312,7 +324,7 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
     output_dir = tmp_path / "diffusion"
     result = generate_diffusion_image(
         DiffusionOptions(
-            prompt="photoreal glass greenhouse interior at night",
+            prompt="photoreal glass greenhouse interior at night with tropical plants and tungsten lamps",
             output_dir=output_dir,
             width=97,
             height=65,
@@ -330,7 +342,10 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
     assert result.candidates_path.exists()
     assert result.contact_sheet_path.exists()
     assert len(fake_pipeline.calls) == 2
-    assert all(call["prompt"] == "photoreal glass greenhouse interior at night" for call in fake_pipeline.calls)
+    assert all(
+        call["prompt"] == "photoreal glass greenhouse interior at night with tropical plants and tungsten lamps"
+        for call in fake_pipeline.calls
+    )
 
     metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
     assert metadata["engine"] == "diffusers-text-to-image-v1"
@@ -340,19 +355,66 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
     assert metadata["width"] == 96
     assert metadata["height"] == 64
     assert metadata["candidate_count"] == 2
-    assert metadata["selected_seed"] in [101, 202]
+    assert metadata["selected_seed"] == 202
     assert metadata["quality_target"] == 0.9
     assert metadata["target_quality_met"] is False
     assert metadata["visual_critique_required"] is True
+    assert metadata["selection_strategy"] == "prompt-aware-detail-aesthetic-v1"
+    assert set(metadata["prompt_focus_terms"]) >= {"night", "plant", "lamp"}
+    assert metadata["prompt_signal_score"] == metadata["recommended_candidate_prompt_signal_score"]
 
     candidates = json.loads(result.candidates_path.read_text(encoding="utf-8"))
     assert {candidate["seed"] for candidate in candidates} == {101, 202}
     assert all(Path(candidate["image"]).exists() for candidate in candidates)
     assert all(0.0 <= candidate["selection_score"] <= 1.0 for candidate in candidates)
+    assert all(0.0 <= candidate["prompt_signal_score"] <= 1.0 for candidate in candidates)
+    assert all("prompt_signal_details" in candidate for candidate in candidates)
+    assert all(any("prompt_signal_score" in reason for reason in candidate["selection_reasons"]) for candidate in candidates)
 
     critique_request = json.loads(result.critique_request_path.read_text(encoding="utf-8"))
     assert critique_request["image"] == str(result.image_path)
-    assert critique_request["prompt"] == "photoreal glass greenhouse interior at night"
+    assert critique_request["prompt"] == "photoreal glass greenhouse interior at night with tropical plants and tungsten lamps"
+
+
+def test_diffusion_profile_applies_photoreal_defaults(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    captured: dict[str, object] = {}
+
+    class FakePipeline:
+        def __call__(self, **kwargs):
+            return SimpleNamespace(images=[Image.new("RGB", (int(kwargs["width"]), int(kwargs["height"])), (18, 40, 32))])
+
+    def fake_load_pipeline(*, model: str, device: str):
+        captured["model"] = model
+        captured["device"] = device
+        return FakePipeline(), "cuda"
+
+    monkeypatch.setattr(diffusion_module, "_load_pipeline", fake_load_pipeline)
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt="deep night photoreal greenhouse with tungsten lamps",
+            output_dir=tmp_path / "diffusion-profile",
+            profile="night-photoreal",
+            width=96,
+            height=64,
+            seeds=(7,),
+            device="auto",
+        )
+    )
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert captured["model"] == "SG161222/RealVisXL_V5.0"
+    assert captured["device"] == "auto"
+    assert metadata["diffusion_profile"] == "night-photoreal"
+    assert metadata["model"] == "SG161222/RealVisXL_V5.0"
+    assert metadata["steps"] == 28
+    assert metadata["guidance_scale"] == 7.0
+    assert "furniture" in metadata["negative_prompt"]
+    assert metadata["normalized_prompt"].startswith("photorealistic high-detail DSLR")
 
 
 def test_diffusion_generation_records_prompt_length_warning(tmp_path: Path, monkeypatch):
@@ -381,6 +443,52 @@ def test_diffusion_generation_records_prompt_length_warning(tmp_path: Path, monk
     metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
     assert metadata["prompt_token_estimate"] == 90
     assert "77-token" in metadata["prompt_length_warning"]
+
+
+def test_cli_pair_eval_writes_claude_request_without_generating(tmp_path: Path):
+    before = tmp_path / "before.png"
+    after = tmp_path / "after.png"
+    Image.new("RGB", (16, 16), (80, 80, 80)).save(before)
+    Image.new("RGB", (16, 16), (20, 40, 30)).save(after)
+    output_dir = tmp_path / "pair-eval"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "pair-eval",
+            "--prompt",
+            "photoreal greenhouse with night mist and lamps",
+            "--before",
+            str(before),
+            "--after",
+            str(after),
+            "--pair-id",
+            "greenhouse-v1",
+            "--output-dir",
+            str(output_dir),
+            "--quality-target",
+            "0.9",
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    request_path = output_dir / "pair-evaluation-request.json"
+    assert request_path.exists()
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request["judge"] == "claude-vision-pair-evaluation"
+    assert request["prompt"] == "photoreal greenhouse with night mist and lamps"
+    assert request["quality_target"] == 0.9
+    assert request["pairs"] == [
+        {"id": "greenhouse-v1", "before_image": str(before), "after_image": str(after)}
+    ]
+    assert request["expected_response"]["acceptance_gate_met"] is False
+    assert "after_score" in request["expected_response"]["pair_scores"][0]
 
 
 def test_cli_generate_accepts_scene_plan_file(tmp_path: Path):

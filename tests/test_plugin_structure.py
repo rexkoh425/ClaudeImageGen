@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.2"
+EXPECTED_VERSION = "0.1.3"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -50,6 +50,8 @@ def test_claude_skill_and_executable_are_present():
     assert skill.exists()
     assert "claude-imagegen generate" in skill_text
     assert "claude-imagegen diffuse" in skill_text
+    assert "claude-imagegen pair-eval" in skill_text
+    assert "pair-evaluation-request.json" in skill_text
     assert "--scene-plan" in skill_text
     assert "scene-plan.json" in skill_text
     assert '"stops"' in skill_text
@@ -142,7 +144,9 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "python -m pip install -e ." in readme
     assert 'python -m pip install -e ".[diffusion]"' in readme
     assert "claude-imagegen diffuse" in readme
+    assert "claude-imagegen pair-eval" in readme
     assert "claude-imagegen setup --with-diffusion" in readme
+    assert "--profile night-photoreal" in readme
     assert "scene-plan.json" in readme
     assert "image.png" in readme
     assert "metadata.json" in readme
@@ -153,6 +157,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "multi-refinement" in readme
     assert "critique-request.json" in readme
     assert "comparison-request.json" in readme
+    assert "pair-evaluation-request.json" in readme
     assert "verification-report.json" in readme
     assert "device_summary" in readme
     assert "image_summary" in readme
