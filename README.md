@@ -63,7 +63,7 @@ claude-imagegen diffuse \
   --quality-target 0.9
 ```
 
-`diffuse` writes multiple candidates, selects the strongest prompt-aware local candidate, and creates `candidates/contact-sheet.png`. Open `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting a `0.9` target. Keep prompts concise; `metadata.json` records `prompt_length_warning` when SDXL-style text limits may truncate later details.
+`diffuse` writes multiple candidates, selects the strongest prompt-aware local candidate, and creates `candidates/contact-sheet.png`. For multi-refinement, rerun it with `--initial-image <previous image.png> --strength 0.16` to use local image-to-image diffusion. Open `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting a `0.9` target.
 
 ## Pair Evaluation
 
@@ -161,7 +161,7 @@ Open `verification-report.json` and check `image_summary`, `device_summary`, non
 
 `--quality-target 0.9` is a gate, not a promise. A run should only be accepted when local scores and `image_detail_score` are strong, Claude vision gives a high `closeness_score`, `quality-report.json` has `target_quality_met: true`, and GPT/Sora-level parity is not claimed unless an actual Claude visual judgement supports it.
 
-Current greenhouse testing on an RTX 5070 Ti improved through diffusion and postprocessing, but repeated Claude pair-evaluation scored the best after image `0.83`, not `0.9`. Treat that as useful progress, not solved parity.
+Current greenhouse testing on an RTX 5070 Ti improved through diffusion, postprocessing, and image-to-image refinement, but Claude pair-evaluation still scored the best after images around `0.84`, not `0.9`. Treat that as useful progress, not solved parity.
 
 ## Current Limits
 

@@ -135,6 +135,8 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "photoreal glass greenhouse interior at night",
             "--output-dir",
             "out",
+            "--initial-image",
+            "input.png",
             "--width",
             "1024",
             "--height",
@@ -143,6 +145,8 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "101,202",
             "--steps",
             "4",
+            "--strength",
+            "0.28",
             "--device",
             "cuda",
             "--quality-target",
@@ -150,7 +154,9 @@ def test_cli_accepts_siglip_similarity_backend_options():
         ]
     )
     assert diffuse_args.command == "diffuse"
+    assert diffuse_args.initial_image == Path("input.png")
     assert diffuse_args.seeds == (101, 202)
+    assert diffuse_args.strength == 0.28
     assert diffuse_args.device == "cuda"
     assert diffuse_args.quality_target == 0.9
 
@@ -368,7 +374,9 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
     assert all(Path(candidate["image"]).exists() for candidate in candidates)
     assert all(0.0 <= candidate["selection_score"] <= 1.0 for candidate in candidates)
     assert all(0.0 <= candidate["prompt_signal_score"] <= 1.0 for candidate in candidates)
+    assert all(0.0 <= candidate["prompt_critical_score"] <= 1.0 for candidate in candidates)
     assert all("prompt_signal_details" in candidate for candidate in candidates)
+    assert metadata["recommended_candidate_prompt_critical_score"] == candidates[0]["prompt_critical_score"]
     assert all(any("prompt_signal_score" in reason for reason in candidate["selection_reasons"]) for candidate in candidates)
 
     critique_request = json.loads(result.critique_request_path.read_text(encoding="utf-8"))
@@ -415,6 +423,122 @@ def test_diffusion_profile_applies_photoreal_defaults(tmp_path: Path, monkeypatc
     assert metadata["guidance_scale"] == 7.0
     assert "furniture" in metadata["negative_prompt"]
     assert metadata["normalized_prompt"].startswith("photorealistic high-detail DSLR")
+
+
+def test_night_diffusion_profile_promotes_strict_quality_features(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    captured: dict[str, object] = {}
+
+    class FakePipeline:
+        def __call__(self, **kwargs):
+            captured["prompt"] = kwargs["prompt"]
+            return SimpleNamespace(images=[Image.new("RGB", (int(kwargs["width"]), int(kwargs["height"])), (18, 40, 32))])
+
+        def to(self, device: str):
+            captured["device"] = device
+            return self
+
+    monkeypatch.setattr(diffusion_module, "_load_pipeline", lambda *, model, device: (FakePipeline(), "cuda"))
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt=(
+                "deep night glass greenhouse interior with tropical plants, sharp leaf veins, "
+                "warm tungsten hanging lamps, visible interior volumetric mist in the lamp beams, "
+                "wet black stone floor with coherent mirror reflections, no people"
+            ),
+            output_dir=tmp_path / "diffusion-strict-features",
+            profile="night-photoreal",
+            width=96,
+            height=64,
+            seeds=(7,),
+            device="auto",
+        )
+    )
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    normalized_prompt = metadata["normalized_prompt"]
+    assert metadata["prompt_token_estimate"] <= 77
+    assert metadata["prompt_length_warning"] is None
+    assert "greenhouse interior" in normalized_prompt.lower()
+    assert "tropical plants" in normalized_prompt.lower()
+    first_clause = normalized_prompt.split(",", maxsplit=8)[:8]
+    early_prompt = ",".join(first_clause).lower()
+    assert "interior volumetric mist" in early_prompt
+    assert "mirror-wet floor reflections" in early_prompt
+    assert "crisp leaf-vein microdetail" in early_prompt
+    assert "warm tungsten hanging lamps" in early_prompt
+    assert "volumetric light beams from warm tungsten lamps" in early_prompt
+    assert captured["prompt"] == normalized_prompt
+
+
+def test_diffusion_candidate_selection_penalizes_missing_required_prompt_terms(tmp_path: Path):
+    from PIL import ImageDraw
+
+    from claude_imagegen.diffusion import _candidate_entry
+
+    image = Image.new("RGB", (128, 96), (52, 72, 68))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 58, 128, 96), fill=(70, 85, 82))
+    draw.rectangle((8, 66, 120, 86), fill=(160, 170, 158))
+
+    entry = _candidate_entry(
+        image,
+        image_path=tmp_path / "no-lamp.png",
+        seed=1,
+        prompt_focus_terms=("night", "lamp", "mist", "reflection"),
+    )
+
+    assert entry["prompt_signal_details"]["term_scores"]["lamp"] == 0.0
+    assert entry["prompt_critical_score"] == 0.0
+    assert entry["selection_score"] < 0.35
+    assert any("prompt_critical_score=0.000" in reason for reason in entry["selection_reasons"])
+
+
+def test_diffusion_image_to_image_refinement_uses_initial_image(tmp_path: Path, monkeypatch):
+    from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
+
+    initial_image = tmp_path / "initial.png"
+    Image.new("RGB", (80, 60), (12, 28, 24)).save(initial_image)
+    captured: dict[str, object] = {}
+
+    class FakePipeline:
+        def __call__(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(images=[Image.new("RGB", (int(kwargs["width"]), int(kwargs["height"])), (20, 42, 34))])
+
+        def to(self, device: str):
+            captured["device"] = device
+            return self
+
+    monkeypatch.setattr(diffusion_module, "_load_image_to_image_pipeline", lambda *, model, device: (FakePipeline(), "cuda"))
+    monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+
+    result = generate_diffusion_image(
+        DiffusionOptions(
+            prompt="deep night glass greenhouse with warm lamps, mist, plants, and wet floor reflections",
+            output_dir=tmp_path / "img2img",
+            profile="night-photoreal",
+            initial_image=initial_image,
+            strength=0.28,
+            width=96,
+            height=64,
+            seeds=(7,),
+            device="auto",
+            quality_target=0.9,
+        )
+    )
+
+    assert captured["image"].size == (96, 64)
+    assert captured["strength"] == 0.28
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["diffusion_mode"] == "image-to-image"
+    assert metadata["initial_image"] == str(initial_image)
+    assert metadata["strength"] == 0.28
 
 
 def test_diffusion_generation_records_prompt_length_warning(tmp_path: Path, monkeypatch):

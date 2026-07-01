@@ -125,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     diffuse.add_argument("--prompt", required=True, help="Text prompt to generate.")
     diffuse.add_argument("--negative-prompt", help="Negative prompt for the diffusion model.")
+    diffuse.add_argument("--initial-image", type=Path, help="Optional image for local image-to-image refinement.")
     diffuse.add_argument("--output-dir", type=Path, default=Path("claude-imagegen-output/diffusion"))
     diffuse.add_argument("--model", help="Diffusers text-to-image model id/path; defaults come from --profile.")
     diffuse.add_argument(
@@ -137,6 +138,12 @@ def build_parser() -> argparse.ArgumentParser:
     diffuse.add_argument("--height", type=int, default=768)
     diffuse.add_argument("--steps", type=int, help="Override the profile's diffusion step count.")
     diffuse.add_argument("--guidance-scale", type=float, help="Override the profile's classifier-free guidance scale.")
+    diffuse.add_argument(
+        "--strength",
+        type=float,
+        default=0.35,
+        help="Image-to-image denoise strength for --initial-image; lower values preserve the source more.",
+    )
     diffuse.add_argument(
         "--seeds",
         type=_parse_seed_list,
@@ -451,12 +458,14 @@ def main(argv: list[str] | None = None) -> int:
                 prompt=args.prompt,
                 output_dir=args.output_dir,
                 negative_prompt=args.negative_prompt,
+                initial_image=args.initial_image,
                 model=args.model,
                 profile=args.profile,
                 width=args.width,
                 height=args.height,
                 steps=args.steps,
                 guidance_scale=args.guidance_scale,
+                strength=args.strength,
                 seeds=args.seeds,
                 device=args.device,
                 quality_target=args.quality_target,

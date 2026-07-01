@@ -25,8 +25,7 @@ PHOTOREAL_PROMPT_PREFIX = (
     "physically plausible lighting"
 )
 NIGHT_PHOTOREAL_PROMPT_PREFIX = (
-    "photorealistic high-detail DSLR image, deep night exposure, crisp micro texture, "
-    "warm practical lights, controlled blacks, physically plausible volumetric atmosphere"
+    "photorealistic high-detail DSLR, deep night exposure"
 )
 
 DIFFUSION_PROFILES: dict[str, dict[str, object]] = {
@@ -56,6 +55,7 @@ DIFFUSION_PROFILES: dict[str, dict[str, object]] = {
     },
 }
 DIFFUSION_PROFILE_NAMES = tuple(DIFFUSION_PROFILES)
+CRITICAL_PROMPT_SIGNAL_TERMS = frozenset({"greenhouse", "plant", "lamp", "mist", "reflection", "floor"})
 
 
 @dataclass(frozen=True)
@@ -63,12 +63,14 @@ class DiffusionOptions:
     prompt: str
     output_dir: Path
     negative_prompt: str | None = None
+    initial_image: Path | None = None
     model: str | None = None
     profile: str = "turbo"
     width: int = 1024
     height: int = 768
     steps: int | None = None
     guidance_scale: float | None = None
+    strength: float = 0.35
     seeds: tuple[int, ...] = (101, 202, 303, 404)
     device: str = "auto"
     quality_target: float | None = None
@@ -101,6 +103,9 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
         raise ValueError("steps must be positive")
     if not options.seeds:
         raise ValueError("at least one seed is required")
+    if options.initial_image is not None and not options.initial_image.exists():
+        raise FileNotFoundError(f"initial image does not exist: {options.initial_image}")
+    strength = max(0.05, min(0.95, float(options.strength)))
 
     width, height = _diffusion_dimensions(options.width, options.height)
     output_dir = options.output_dir
@@ -108,7 +113,14 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
     candidates_dir = output_dir / "candidates"
     candidates_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline, effective_device = _load_pipeline(model=str(config["model"]), device=options.device)
+    if options.initial_image is None:
+        pipeline, effective_device = _load_pipeline(model=str(config["model"]), device=options.device)
+        diffusion_mode = "text-to-image"
+        initial_image = None
+    else:
+        pipeline, effective_device = _load_image_to_image_pipeline(model=str(config["model"]), device=options.device)
+        diffusion_mode = "image-to-image"
+        initial_image = _prepare_initial_image(options.initial_image, width=width, height=height)
 
     entries: list[dict[str, object]] = []
     images: list[Image.Image] = []
@@ -123,6 +135,8 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
             guidance_scale=guidance_scale,
             seed=seed,
             device=effective_device,
+            initial_image=initial_image,
+            strength=strength,
         )
         image_path = candidates_dir / f"diffusion-seed-{seed}.png"
         image.save(image_path)
@@ -151,9 +165,11 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
     metadata: dict[str, object] = {
         "engine": "diffusers-text-to-image-v1",
         "backend": "diffusers",
+        "diffusion_mode": diffusion_mode,
         "diffusion_profile": config["profile"],
         "model": config["model"],
         "prompt": options.prompt,
+        "initial_image": str(options.initial_image) if options.initial_image is not None else None,
         "normalized_prompt": config["prompt"],
         "prompt_token_estimate": prompt_token_estimate,
         "prompt_length_warning": _prompt_length_warning(prompt_token_estimate),
@@ -164,6 +180,7 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
         "height": height,
         "steps": steps,
         "guidance_scale": guidance_scale,
+        "strength": strength if options.initial_image is not None else None,
         "device": options.device,
         "effective_device": effective_device,
         "seeds": list(options.seeds),
@@ -179,6 +196,7 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
         "recommended_candidate_aesthetic_details": selected["aesthetic_details"],
         "recommended_candidate_prompt_signal_score": selected["prompt_signal_score"],
         "recommended_candidate_prompt_signal_details": selected["prompt_signal_details"],
+        "recommended_candidate_prompt_critical_score": selected["prompt_critical_score"],
         "total_score": selected["selection_score"],
         "threshold": 0.58,
         "quality_target": options.quality_target,
@@ -227,18 +245,13 @@ def _candidate_entry(
     detail_metrics = image_detail_metrics(image)
     aesthetic_score, aesthetic_details = compute_candidate_aesthetic_score(image)
     prompt_signal_score, prompt_signal_details = _prompt_signal_score(image, prompt_focus_terms=prompt_focus_terms)
-    selection_score = round(
-        max(
-            0.0,
-            min(
-                1.0,
-                (0.48 * float(detail_metrics["detail_score"]))
-                + (0.28 * aesthetic_score)
-                + (0.24 * prompt_signal_score),
-            ),
-        ),
-        6,
+    prompt_critical_score = _critical_prompt_signal_score(prompt_signal_details)
+    raw_selection_score = (
+        (0.48 * float(detail_metrics["detail_score"]))
+        + (0.28 * aesthetic_score)
+        + (0.24 * prompt_signal_score)
     )
+    selection_score = round(max(0.0, min(1.0, raw_selection_score * (0.72 + (0.28 * prompt_critical_score)))), 6)
     return {
         "rank": 0,
         "seed": seed,
@@ -248,6 +261,7 @@ def _candidate_entry(
             f"image_detail_score={detail_metrics['detail_score']:.3f} weight=0.48",
             f"aesthetic_score={aesthetic_score:.3f} weight=0.28",
             f"prompt_signal_score={prompt_signal_score:.3f} weight=0.24",
+            f"prompt_critical_score={prompt_critical_score:.3f} multiplier={0.72 + (0.28 * prompt_critical_score):.3f}",
         ],
         "image_detail_score": detail_metrics["detail_score"],
         "image_detail_metrics": detail_metrics,
@@ -255,7 +269,22 @@ def _candidate_entry(
         "aesthetic_details": aesthetic_details,
         "prompt_signal_score": prompt_signal_score,
         "prompt_signal_details": prompt_signal_details,
+        "prompt_critical_score": prompt_critical_score,
     }
+
+
+def _critical_prompt_signal_score(prompt_signal_details: dict[str, object]) -> float:
+    term_scores = prompt_signal_details.get("term_scores")
+    if not isinstance(term_scores, dict):
+        return 1.0
+    critical_scores = [
+        float(score)
+        for term, score in term_scores.items()
+        if str(term).strip().lower() in CRITICAL_PROMPT_SIGNAL_TERMS
+    ]
+    if not critical_scores:
+        return 1.0
+    return _clamp01(min(critical_scores))
 
 
 def _resolve_diffusion_config(options: DiffusionOptions) -> dict[str, object]:
@@ -263,12 +292,17 @@ def _resolve_diffusion_config(options: DiffusionOptions) -> dict[str, object]:
     if profile_name not in DIFFUSION_PROFILES:
         raise ValueError(f"unknown diffusion profile: {options.profile}")
     profile = DIFFUSION_PROFILES[profile_name]
-    prompt = _apply_prompt_prefix(options.prompt.strip(), str(profile.get("prompt_prefix") or ""))
     focus_terms = _prompt_focus_terms(
         options.prompt,
         explicit=options.prompt_focus,
         profile_terms=tuple(str(term) for term in profile.get("focus_terms", ())),
     )
+    prompt_prefix = _quality_prompt_prefix(
+        str(profile.get("prompt_prefix") or ""),
+        focus_terms=focus_terms,
+        profile=profile_name,
+    )
+    prompt = _apply_prompt_prefix(options.prompt.strip(), prompt_prefix)
     return {
         "profile": profile_name,
         "model": options.model or str(profile["model"]),
@@ -280,6 +314,29 @@ def _resolve_diffusion_config(options: DiffusionOptions) -> dict[str, object]:
         else float(profile["guidance_scale"]),
         "prompt_focus_terms": focus_terms,
     }
+
+
+def _quality_prompt_prefix(prefix: str, *, focus_terms: tuple[str, ...], profile: str) -> str:
+    base_clauses = [clause.strip() for clause in prefix.split(",") if clause.strip()]
+    if profile != "night-photoreal":
+        return ", ".join(base_clauses)
+
+    focus = {term.strip().lower() for term in focus_terms}
+    priority_clauses: list[str] = []
+    if "night" in focus:
+        priority_clauses.append("deep-night black point preserved")
+    if focus.intersection({"lamp", "light", "tungsten"}):
+        priority_clauses.append("warm tungsten hanging lamps clearly visible")
+    if focus.intersection({"mist", "fog", "haze", "volumetric"}) and focus.intersection({"lamp", "light", "tungsten"}):
+        priority_clauses.append("volumetric light beams from warm tungsten lamps")
+    if focus.intersection({"mist", "fog", "haze", "volumetric"}):
+        priority_clauses.append("visible interior volumetric mist in warm light cones")
+    if focus.intersection({"reflection", "wet", "mirror", "floor"}):
+        priority_clauses.append("coherent mirror-wet floor reflections")
+    if focus.intersection({"leaf detail", "plant", "foliage"}):
+        priority_clauses.append("crisp leaf-vein microdetail")
+    clauses = base_clauses[:2] + priority_clauses + base_clauses[2:]
+    return ", ".join(dict.fromkeys(clauses))
 
 
 def _apply_prompt_prefix(prompt: str, prefix: str) -> str:
@@ -477,15 +534,23 @@ def _run_pipeline(
     guidance_scale: float,
     seed: int,
     device: str,
+    initial_image: Image.Image | None = None,
+    strength: float | None = None,
 ) -> Image.Image:
+    kwargs: dict[str, object] = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "num_inference_steps": steps,
+        "guidance_scale": guidance_scale,
+        "generator": _torch_generator(seed=seed, device=device),
+        "height": height,
+        "width": width,
+    }
+    if initial_image is not None:
+        kwargs["image"] = initial_image
+        kwargs["strength"] = max(0.05, min(0.95, float(strength if strength is not None else 0.35)))
     result = pipeline(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        num_inference_steps=steps,
-        guidance_scale=guidance_scale,
-        generator=_torch_generator(seed=seed, device=device),
-        height=height,
-        width=width,
+        **kwargs,
     )
     images = getattr(result, "images", None)
     if not images:
@@ -504,12 +569,41 @@ def _load_pipeline(*, model: str, device: str) -> tuple[object, str]:
         ) from exc
 
     effective_device = _effective_device(torch, requested=device)
-    dtype = torch.float16 if effective_device == "cuda" else torch.float32
+    kwargs = _pipeline_kwargs(torch, effective_device=effective_device)
+    pipeline = AutoPipelineForText2Image.from_pretrained(model, **kwargs)
+    return pipeline.to(effective_device), effective_device
+
+
+def _load_image_to_image_pipeline(*, model: str, device: str) -> tuple[object, str]:
+    try:
+        import torch
+        from diffusers import AutoPipelineForImage2Image
+    except ImportError as exc:
+        raise DiffusionDependencyError(
+            "Optional diffusion dependencies are missing. Install them with: "
+            "python -m pip install -e .[diffusion]"
+        ) from exc
+
+    effective_device = _effective_device(torch, requested=device)
+    kwargs = _pipeline_kwargs(torch, effective_device=effective_device)
+    pipeline = AutoPipelineForImage2Image.from_pretrained(model, **kwargs)
+    return pipeline.to(effective_device), effective_device
+
+
+def _prepare_initial_image(path: Path, *, width: int, height: int) -> Image.Image:
+    with Image.open(path) as image:
+        prepared = image.convert("RGB")
+    if prepared.size != (width, height):
+        prepared = prepared.resize((width, height), Image.Resampling.LANCZOS)
+    return prepared
+
+
+def _pipeline_kwargs(torch_module: object, *, effective_device: str) -> dict[str, object]:
+    dtype = torch_module.float16 if effective_device == "cuda" else torch_module.float32
     kwargs: dict[str, object] = {"torch_dtype": dtype}
     if effective_device == "cuda":
         kwargs["variant"] = "fp16"
-    pipeline = AutoPipelineForText2Image.from_pretrained(model, **kwargs)
-    return pipeline.to(effective_device), effective_device
+    return kwargs
 
 
 def _torch_generator(*, seed: int, device: str) -> object | None:

@@ -41,7 +41,7 @@ VQAScore idea, run locally with no API. The canonical CPU loop is:
 
 ## High-quality multi-refinement mode
 
-When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. If optional Diffusers/Torch dependencies are available and the user wants photoreal detail, prefer `claude-imagegen diffuse --profile night-photoreal` first, then have Claude vision judge the PNG. Otherwise use the CPU scene-plan loop with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
+When the user asks for best quality, more detail, or a target near `0.9`, use a multi-refinement loop instead of a single render. If optional Diffusers/Torch dependencies are available and the user wants photoreal detail, prefer `claude-imagegen diffuse --profile night-photoreal` first, then use `--initial-image <previous image.png> --strength 0.16` to make conservative local image-to-image refinement passes when Claude says the composition is close but details need work. Otherwise use the CPU scene-plan loop with `--quality-target 0.9`, inspect `image.png` with Claude vision, fill `critique.json`, and only accept the image when `quality-report.json` has `target_quality_met: true`. That requires local prompt/detail evidence plus Claude visual `closeness_score >= 0.9`.
 
 For these runs, set `"style"` with `"detail"` and `"sharpen"` in addition to color grade controls, and make the scene plan visibly dense: use foreground/midground/background separation, materials, textures, shadows, veils, reflections, and small motif detail. Prefer 2-4 refinement rounds with `--save-candidates 4`; do not keep increasing local iterations if Claude vision says the composition is wrong.
 
@@ -71,6 +71,8 @@ claude-imagegen diffuse \
 ```
 
 Then inspect `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting the result.
+
+For conservative local image-to-image refinement of a strong photoreal attempt, add `--initial-image "claude-imagegen-output/<previous>/image.png" --strength 0.16`; lower strength preserves composition and leaf detail, higher strength changes the scene more.
 
 For before/after scoring without generating a new image, use:
 
