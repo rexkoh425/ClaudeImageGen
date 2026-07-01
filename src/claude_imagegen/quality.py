@@ -51,7 +51,7 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
             pass_threshold=0.56,
             review_threshold=0.35,
             weight=0.22,
-            detail="Backchecked caption overlap with requested prompt objects, colors, and tokens.",
+            detail=_caption_alignment_detail(metadata),
         ),
         _check(
             name="size",
@@ -224,6 +224,13 @@ def _summary(status: str, quality_score: float, checks: list[dict[str, object]])
     if review_checks:
         return f"{status}: quality_score={quality_score:.3f}; review {', '.join(review_checks)}."
     return f"{status}: quality_score={quality_score:.3f}; all automatic checks passed."
+
+
+def _caption_alignment_detail(metadata: dict[str, object]) -> str:
+    backend = str(metadata.get("caption_similarity_backend") or "local")
+    if backend in {"sentence", "transformers-sentence"}:
+        return "Backchecked caption against the prompt with sentence-embedding semantic similarity plus object/color diagnostics."
+    return "Backchecked caption overlap with requested prompt objects, colors, and tokens."
 
 
 def _size_score(metadata: dict[str, object]) -> float:

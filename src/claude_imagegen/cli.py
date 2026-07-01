@@ -12,6 +12,7 @@ SIMILARITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip")
 STRONG_SIMILARITY_BACKENDS = ("transformers-clip", "transformers-siglip")
 CONTINUITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip", "transformers-dinov2")
 STRONG_CONTINUITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip", "transformers-dinov2")
+CAPTION_SIMILARITY_BACKENDS = ("local", "transformers-sentence")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,6 +82,22 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "cpu", "cuda"),
         default="auto",
         help="Device for optional model-backed caption backchecking.",
+    )
+    generate.add_argument(
+        "--caption-similarity-backend",
+        choices=CAPTION_SIMILARITY_BACKENDS,
+        default="local",
+        help="Prompt/caption text similarity scorer.",
+    )
+    generate.add_argument(
+        "--caption-similarity-model",
+        help="Optional model id/path for --caption-similarity-backend transformers-sentence.",
+    )
+    generate.add_argument(
+        "--caption-similarity-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional semantic prompt/caption similarity scoring.",
     )
     generate.add_argument(
         "--no-auto-refine",
@@ -161,6 +178,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Device for optional model-backed caption backchecking.",
     )
     refine.add_argument(
+        "--caption-similarity-backend",
+        choices=CAPTION_SIMILARITY_BACKENDS,
+        default="local",
+        help="Prompt/caption text similarity scorer.",
+    )
+    refine.add_argument(
+        "--caption-similarity-model",
+        help="Optional model id/path for --caption-similarity-backend transformers-sentence.",
+    )
+    refine.add_argument(
+        "--caption-similarity-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional semantic prompt/caption similarity scoring.",
+    )
+    refine.add_argument(
         "--no-auto-refine",
         dest="auto_refine",
         action="store_false",
@@ -212,6 +245,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("--continuity-model", help="Optional continuity model id/path for --strong-continuity-backend.")
     verify.add_argument("--caption-model", help="Optional BLIP model id/path for --strong-model.")
+    verify.add_argument(
+        "--caption-similarity-backend",
+        choices=CAPTION_SIMILARITY_BACKENDS,
+        default="local",
+        help="Prompt/caption text similarity scorer for strong-model cases.",
+    )
+    verify.add_argument("--caption-similarity-model", help="Optional semantic prompt/caption similarity model id/path.")
     return parser
 
 
@@ -244,6 +284,9 @@ def main(argv: list[str] | None = None) -> int:
                 caption_backend=args.caption_backend,
                 caption_model=args.caption_model,
                 caption_device=args.caption_device,
+                caption_similarity_backend=args.caption_similarity_backend,
+                caption_similarity_model=args.caption_similarity_model,
+                caption_similarity_device=args.caption_similarity_device,
             )
         )
         print(f"Generated {result.image_path}")
@@ -283,6 +326,9 @@ def main(argv: list[str] | None = None) -> int:
                 caption_backend=args.caption_backend,
                 caption_model=args.caption_model,
                 caption_device=args.caption_device,
+                caption_similarity_backend=args.caption_similarity_backend,
+                caption_similarity_model=args.caption_similarity_model,
+                caption_similarity_device=args.caption_similarity_device,
             )
         )
         print(f"Refined {result.image_path}")
@@ -324,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
                 strong_continuity_backend=args.strong_continuity_backend,
                 continuity_model=args.continuity_model,
                 caption_model=args.caption_model,
+                caption_similarity_backend=args.caption_similarity_backend,
+                caption_similarity_model=args.caption_similarity_model,
             )
         )
         print(f"Verification {report['status']} ({report['report_path']})")

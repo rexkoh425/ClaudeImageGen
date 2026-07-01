@@ -37,6 +37,9 @@ class RefineOptions:
     caption_backend: str = "local"
     caption_model: str | None = None
     caption_device: str = "auto"
+    caption_similarity_backend: str = "local"
+    caption_similarity_model: str | None = None
+    caption_similarity_device: str = "auto"
 
 
 def refine_image(options: RefineOptions) -> GenerateResult:
@@ -78,6 +81,9 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             caption_backend=options.caption_backend,
             caption_model=options.caption_model,
             caption_device=options.caption_device,
+            caption_similarity_backend=options.caption_similarity_backend,
+            caption_similarity_model=options.caption_similarity_model,
+            caption_similarity_device=options.caption_similarity_device,
         )
     )
 

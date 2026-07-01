@@ -10,6 +10,7 @@ from .palette import COLOR_RGB, RGB
 from .prompt import parse_prompt
 
 DEFAULT_BLIP_MODEL = "Salesforce/blip-image-captioning-base"
+DEFAULT_SENTENCE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,12 @@ class CaptionResult:
     requested_device: str
     effective_device: str
     tokens: tuple[str, ...]
+    similarity_backend: str = "local"
+    similarity_model: str | None = None
+    similarity_device: str = "cpu"
+    effective_similarity_device: str = "cpu"
+    lexical_prompt_similarity_score: float = 0.0
+    semantic_prompt_similarity_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -38,9 +45,14 @@ def caption_image(
     backend: str = "local",
     model_name: str | None = None,
     device: str = "auto",
+    similarity_backend: str = "local",
+    similarity_model: str | None = None,
+    similarity_device: str = "auto",
 ) -> CaptionResult:
     normalized_backend = backend.strip().lower()
     requested_device = device.strip().lower()
+    normalized_similarity_backend = similarity_backend.strip().lower()
+    requested_similarity_device = similarity_device.strip().lower()
 
     if normalized_backend == "none":
         caption = ""
@@ -60,7 +72,26 @@ def caption_image(
     else:
         raise ValueError(f"Unsupported caption backend: {backend}")
 
-    similarity = caption_prompt_similarity(prompt, caption)
+    lexical_similarity = caption_prompt_similarity(prompt, caption)
+    semantic_similarity: float | None = None
+    if normalized_similarity_backend == "local":
+        similarity = lexical_similarity
+        effective_similarity_model = None
+        effective_similarity_device = "cpu"
+    elif normalized_similarity_backend in {"sentence", "transformers-sentence"}:
+        effective_similarity_model = similarity_model or DEFAULT_SENTENCE_MODEL
+        similarity = caption_prompt_similarity(
+            prompt,
+            caption,
+            backend=normalized_similarity_backend,
+            model_name=effective_similarity_model,
+            device=requested_similarity_device,
+        )
+        semantic_similarity = similarity
+        effective_similarity_device = _effective_sentence_similarity_device(requested_similarity_device)
+    else:
+        raise ValueError(f"Unsupported caption similarity backend: {similarity_backend}")
+
     caption_spec = parse_prompt(caption)
     return CaptionResult(
         caption=caption,
@@ -70,6 +101,12 @@ def caption_image(
         requested_device=requested_device,
         effective_device=effective_device,
         tokens=caption_spec.tokens,
+        similarity_backend=normalized_similarity_backend,
+        similarity_model=effective_similarity_model,
+        similarity_device=requested_similarity_device,
+        effective_similarity_device=effective_similarity_device,
+        lexical_prompt_similarity_score=lexical_similarity,
+        semantic_prompt_similarity_score=semantic_similarity,
     )
 
 
@@ -98,7 +135,32 @@ def caption_prompt_diagnostics(prompt: str, caption: str) -> CaptionDiagnostics:
     )
 
 
-def caption_prompt_similarity(prompt: str, caption: str) -> float:
+def caption_prompt_similarity(
+    prompt: str,
+    caption: str,
+    *,
+    backend: str = "local",
+    model_name: str | None = None,
+    device: str = "auto",
+) -> float:
+    if not caption.strip():
+        return 0.0
+
+    normalized_backend = backend.strip().lower()
+    if normalized_backend in {"sentence", "transformers-sentence"}:
+        return _sentence_text_similarity_score(
+            prompt,
+            caption,
+            model_name=model_name or DEFAULT_SENTENCE_MODEL,
+            device=device,
+        )
+    if normalized_backend != "local":
+        raise ValueError(f"Unsupported caption similarity backend: {backend}")
+
+    return _lexical_caption_prompt_similarity(prompt, caption)
+
+
+def _lexical_caption_prompt_similarity(prompt: str, caption: str) -> float:
     if not caption.strip():
         return 0.0
 
@@ -185,6 +247,25 @@ def _blip_caption(image: Image.Image, *, model_name: str, device: str) -> tuple[
     return caption, resolved_device
 
 
+def _sentence_text_similarity_score(prompt: str, caption: str, *, model_name: str, device: str) -> float:
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-sentence caption similarity requires torch and transformers.") from exc
+
+    resolved_device = _resolve_torch_device(torch, device)
+    tokenizer, model = _load_sentence_model(model_name, resolved_device)
+    inputs = tokenizer([prompt, caption], padding=True, truncation=True, return_tensors="pt")
+    inputs = inputs.to(resolved_device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        token_embeddings = outputs.last_hidden_state
+        mask = inputs["attention_mask"].unsqueeze(-1).expand(token_embeddings.size()).float()
+        embeddings = (token_embeddings * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+        similarity = torch.nn.functional.cosine_similarity(embeddings[0:1], embeddings[1:2]).item()
+    return _clamp01((similarity + 1.0) / 2.0)
+
+
 @lru_cache(maxsize=2)
 def _load_blip_model(model_name: str, device: str) -> tuple[object, object]:
     try:
@@ -197,6 +278,20 @@ def _load_blip_model(model_name: str, device: str) -> tuple[object, object]:
     model.to(device)
     model.eval()
     return processor, model
+
+
+@lru_cache(maxsize=2)
+def _load_sentence_model(model_name: str, device: str) -> tuple[object, object]:
+    try:
+        from transformers import AutoModel, AutoTokenizer
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-sentence caption similarity requires torch and transformers.") from exc
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name)
+    model.to(device)
+    model.eval()
+    return tokenizer, model
 
 
 def _dominant_color_name(array: np.ndarray) -> str:
@@ -274,6 +369,14 @@ def _resolve_torch_device(torch_module: object, device: str) -> str:
     if normalized not in {"cpu", "cuda"}:
         raise ValueError(f"Unsupported caption device: {device}")
     return normalized
+
+
+def _effective_sentence_similarity_device(device: str) -> str:
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    return _resolve_torch_device(torch, device)
 
 
 def _set_recall(expected: set[str], actual: set[str]) -> float:

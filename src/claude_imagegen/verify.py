@@ -32,6 +32,8 @@ class VerifyOptions:
     strong_continuity_backend: str = "local"
     continuity_model: str | None = None
     caption_model: str | None = None
+    caption_similarity_backend: str = "local"
+    caption_similarity_model: str | None = None
 
 
 def run_verification(options: VerifyOptions) -> dict[str, object]:
@@ -63,6 +65,8 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
                 similarity_device="cpu",
                 caption_backend="local",
                 caption_device="cpu",
+                caption_similarity_backend="local",
+                caption_similarity_device="cpu",
             )
         )
         generated_results.append(result)
@@ -82,6 +86,8 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
             similarity_device="cpu",
             caption_backend="local",
             caption_device="cpu",
+            caption_similarity_backend="local",
+            caption_similarity_device="cpu",
         )
     )
     cases.append(_case_report("refine", refine_result, requested_size=_metadata_size(refine_result.metadata)))
@@ -100,6 +106,7 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
         "strong_model": strong_model_status,
         "strong_similarity_backend": options.strong_similarity_backend if options.strong_model else None,
         "strong_continuity_backend": options.strong_continuity_backend if options.strong_model else None,
+        "caption_similarity_backend": options.caption_similarity_backend if options.strong_model else None,
         "cases": cases,
     }
     report_path = output_dir / "verification-report.json"
@@ -143,6 +150,9 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
                 caption_backend="transformers-blip",
                 caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
                 caption_device=options.strong_model_device,
+                caption_similarity_backend=options.caption_similarity_backend,
+                caption_similarity_model=options.caption_similarity_model,
+                caption_similarity_device=options.strong_model_device,
             )
         )
     except Exception as exc:  # pragma: no cover - depends on optional local model installs
@@ -176,6 +186,9 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
                     caption_backend="transformers-blip",
                     caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
                     caption_device=options.strong_model_device,
+                    caption_similarity_backend=options.caption_similarity_backend,
+                    caption_similarity_model=options.caption_similarity_model,
+                    caption_similarity_device=options.strong_model_device,
                 )
             )
         except Exception as exc:  # pragma: no cover - depends on optional local model installs
@@ -239,6 +252,9 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "quality_score": metadata.get("quality_score"),
         "total_score": metadata.get("total_score"),
         "caption_similarity_score": metadata.get("caption_similarity_score"),
+        "caption_similarity_backend": metadata.get("caption_similarity_backend"),
+        "caption_similarity_model": metadata.get("caption_similarity_model"),
+        "effective_caption_similarity_device": metadata.get("effective_caption_similarity_device"),
         "initial_similarity_score": metadata.get("initial_similarity_score"),
         "similarity_backend": metadata.get("similarity_backend"),
         "similarity_model": metadata.get("similarity_model"),

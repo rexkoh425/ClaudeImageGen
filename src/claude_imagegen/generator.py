@@ -43,6 +43,9 @@ class GenerateOptions:
     caption_backend: str = "local"
     caption_model: str | None = None
     caption_device: str = "auto"
+    caption_similarity_backend: str = "local"
+    caption_similarity_model: str | None = None
+    caption_similarity_device: str = "auto"
     save_candidates: int = 0
 
 
@@ -172,6 +175,9 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         caption_backend=options.caption_backend,
         caption_model=options.caption_model,
         caption_device=options.caption_device,
+        caption_similarity_backend=options.caption_similarity_backend,
+        caption_similarity_model=options.caption_similarity_model,
+        caption_similarity_device=options.caption_similarity_device,
     )
     metadata_scene_plan = best_scene_plan or scene_plan
     caption_result = caption_image(
@@ -180,6 +186,9 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         backend=options.caption_backend,
         model_name=options.caption_model,
         device=options.caption_device,
+        similarity_backend=options.caption_similarity_backend,
+        similarity_model=options.caption_similarity_model,
+        similarity_device=options.caption_similarity_device,
     )
     caption_diagnostics = (
         CaptionDiagnostics((), (), (), ())
@@ -238,8 +247,18 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "caption_model": caption_result.model_name,
         "caption_device": caption_result.requested_device,
         "effective_caption_device": caption_result.effective_device,
+        "caption_similarity_backend": caption_result.similarity_backend,
+        "caption_similarity_model": caption_result.similarity_model,
+        "caption_similarity_device": caption_result.similarity_device,
+        "effective_caption_similarity_device": caption_result.effective_similarity_device,
         "image_caption": caption_result.caption,
         "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
+        "lexical_caption_similarity_score": round(caption_result.lexical_prompt_similarity_score, 6),
+        "semantic_caption_similarity_score": (
+            round(caption_result.semantic_prompt_similarity_score, 6)
+            if caption_result.semantic_prompt_similarity_score is not None
+            else None
+        ),
         "caption_tokens": list(caption_result.tokens),
         "caption_missing_objects": list(caption_diagnostics.missing_objects),
         "caption_missing_colors": list(caption_diagnostics.missing_colors),
@@ -544,6 +563,9 @@ def _write_candidate_artifacts(
     caption_backend: str,
     caption_model: str | None,
     caption_device: str,
+    caption_similarity_backend: str,
+    caption_similarity_model: str | None,
+    caption_similarity_device: str,
 ) -> tuple[Path | None, Path | None, list[dict[str, object]]]:
     if not candidates:
         return None, None, []
@@ -562,6 +584,9 @@ def _write_candidate_artifacts(
             backend=caption_backend,
             model_name=caption_model,
             device=caption_device,
+            similarity_backend=caption_similarity_backend,
+            similarity_model=caption_similarity_model,
+            similarity_device=caption_similarity_device,
         )
         caption_diagnostics = (
             CaptionDiagnostics((), (), (), ())
@@ -579,6 +604,15 @@ def _write_candidate_artifacts(
             "met_threshold": candidate.met_threshold,
             "caption": caption_result.caption,
             "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
+            "caption_similarity_backend": caption_result.similarity_backend,
+            "caption_similarity_model": caption_result.similarity_model,
+            "effective_caption_similarity_device": caption_result.effective_similarity_device,
+            "lexical_caption_similarity_score": round(caption_result.lexical_prompt_similarity_score, 6),
+            "semantic_caption_similarity_score": (
+                round(caption_result.semantic_prompt_similarity_score, 6)
+                if caption_result.semantic_prompt_similarity_score is not None
+                else None
+            ),
             "caption_missing_objects": list(caption_diagnostics.missing_objects),
             "caption_missing_colors": list(caption_diagnostics.missing_colors),
             "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),

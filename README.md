@@ -205,7 +205,7 @@ When refining from an initial image with `--similarity-backend transformers-clip
 
 ## Caption Backchecking
 
-Every run defaults to `--caption-backend local`, a deterministic offline caption proxy that describes visible scene evidence such as sun, ocean, clouds, mountains, forest, or city structure. The generated `metadata.json` records `image_caption`, `caption_similarity_score`, `caption_backend`, `caption_model`, `caption_device`, `effective_caption_device`, `caption_missing_objects`, `caption_missing_colors`, `caption_unexpected_objects`, and `caption_unexpected_colors`.
+Every run defaults to `--caption-backend local`, a deterministic offline caption proxy that describes visible scene evidence such as sun, ocean, clouds, mountains, forest, or city structure. The generated `metadata.json` records `image_caption`, `caption_similarity_score`, `caption_backend`, `caption_model`, `caption_device`, `effective_caption_device`, `caption_similarity_backend`, `lexical_caption_similarity_score`, `semantic_caption_similarity_score`, `caption_missing_objects`, `caption_missing_colors`, `caption_unexpected_objects`, and `caption_unexpected_colors`.
 
 For stronger image-to-text checking, use the optional Transformers BLIP backend when `torch`, `transformers`, and the selected model are available:
 
@@ -222,6 +222,24 @@ claude-imagegen generate \
 ```
 
 `--caption-device auto` uses CUDA through PyTorch when available, otherwise CPU. Caption backchecking is a second signal: it helps Claude Code spot when the image appears to contain different objects than the prompt asked for, even if the local cosine score is high. When caption similarity is low, missing requested objects or colors are also promoted into `revision_hints` so the next scene plan can make those elements visually explicit.
+
+For stronger NLP comparison between the prompt and the generated caption, add sentence-embedding caption similarity:
+
+```bash
+claude-imagegen generate \
+  --prompt "cinematic red sun over a blue ocean with misty mountains" \
+  --output-dir claude-imagegen-output/demo-caption-sbert \
+  --width 1024 \
+  --height 768 \
+  --caption-backend transformers-blip \
+  --caption-model Salesforce/blip-image-captioning-base \
+  --caption-device auto \
+  --caption-similarity-backend transformers-sentence \
+  --caption-similarity-model sentence-transformers/all-MiniLM-L6-v2 \
+  --caption-similarity-device auto
+```
+
+This keeps the explicit object/color gap diagnostics while letting `caption_similarity_score` use semantic prompt/caption closeness instead of only token overlap.
 
 ## Claude Code Plugin Layout
 
@@ -300,7 +318,7 @@ Scene plans have two composition levels:
 
 A 2048x2048 image has 4,194,304 pixels. A literal RGB table has 4,194,304 rows before metadata, and asking an LLM to emit that table directly would usually mean millions of tokens. This prototype therefore renders pixels programmatically and only exports `pixels.csv` on request.
 
-When `quality-report.json` reports `status: "revise"`, its `next_actions` list is the primary checklist for the next scene-plan edit. `metadata.json` still includes the underlying `revision_hints` with concrete scene-plan changes for Claude Code to make next, such as adding missing objects, strengthening requested colors, increasing contrast, or moving closer to a reference image. If a scene plan is provided, the generator also performs bounded local auto-refinement between iterations: it can add missing prompt objects such as clouds, add a matching cloud layer, and increase contrast or saturation when the local scorer shows weak evidence. If a reference or initial image is provided, `reference_palette` and `initial_palette` expose extracted hex colors that Claude can fold into the next scene plan. `image_caption`, `caption_similarity_score`, and `caption_missing_objects` / `caption_missing_colors` add a direct "what does this look like" check before revising the next scene plan. The intent is to keep the expensive semantic iteration in Claude Code while local work remains deterministic rendering, scoring, caption backchecking, quality reporting, and targeted refinement.
+When `quality-report.json` reports `status: "revise"`, its `next_actions` list is the primary checklist for the next scene-plan edit. `metadata.json` still includes the underlying `revision_hints` with concrete scene-plan changes for Claude Code to make next, such as adding missing objects, strengthening requested colors, increasing contrast, or moving closer to a reference image. If a scene plan is provided, the generator also performs bounded local auto-refinement between iterations: it can add missing prompt objects such as clouds, add a matching cloud layer, and increase contrast or saturation when the local scorer shows weak evidence. If a reference or initial image is provided, `reference_palette` and `initial_palette` expose extracted hex colors that Claude can fold into the next scene plan. `image_caption`, `caption_similarity_score`, `lexical_caption_similarity_score`, `semantic_caption_similarity_score`, and `caption_missing_objects` / `caption_missing_colors` add a direct "what does this look like" check before revising the next scene plan. The intent is to keep the expensive semantic iteration in Claude Code while local work remains deterministic rendering, scoring, caption backchecking, quality reporting, and targeted refinement.
 
 ## Validation
 
@@ -310,7 +328,7 @@ python -m claude_imagegen.cli generate --prompt "red sun over blue ocean" --outp
 claude-imagegen verify --output-dir claude-imagegen-output/verification --size 320x192 --size 768x432 --size 1024x640
 ```
 
-`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one model-backed similarity plus BLIP verification case when local `torch`, `transformers`, and model weights are available. Use `--strong-similarity-backend transformers-siglip --similarity-model google/siglip-base-patch16-224` to run the strong case with SigLIP instead of CLIP. Add `--strong-continuity-backend transformers-dinov2 --continuity-model facebook/dinov2-base` to include an extra strong refine case with DINOv2 parent-image continuity.
+`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one model-backed similarity plus BLIP verification case when local `torch`, `transformers`, and model weights are available. Use `--strong-similarity-backend transformers-siglip --similarity-model google/siglip-base-patch16-224` to run the strong case with SigLIP instead of CLIP. Add `--strong-continuity-backend transformers-dinov2 --continuity-model facebook/dinov2-base` to include an extra strong refine case with DINOv2 parent-image continuity. Add `--caption-similarity-backend transformers-sentence --caption-similarity-model sentence-transformers/all-MiniLM-L6-v2` to score BLIP captions against prompts with sentence embeddings.
 
 If the local Claude Code build supports plugin validation:
 
