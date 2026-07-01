@@ -35,6 +35,7 @@ def build_quality_report(metadata: dict[str, object]) -> dict[str, object]:
         "refinement_delta": refinement_delta,
         "recommended_candidate_rank": metadata.get("recommended_candidate_rank"),
         "recommended_candidate_score": metadata.get("recommended_candidate_score"),
+        "recommended_candidate_aesthetic_score": metadata.get("recommended_candidate_aesthetic_score"),
         "revision_hints": _string_list(metadata.get("revision_hints")),
     }
 
@@ -113,7 +114,7 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
                 pass_threshold=0.55,
                 review_threshold=0.35,
                 weight=0.10,
-                detail="Best saved candidate score after combining visual score, caption evidence, and penalties.",
+                detail="Best saved candidate score after combining visual score, caption evidence, aesthetic preference, and penalties.",
             )
         )
 

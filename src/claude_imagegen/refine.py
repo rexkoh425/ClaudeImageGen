@@ -106,6 +106,8 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             "parent_candidate_total_score": parent_candidate.get("total_score") if parent_candidate else None,
             "parent_candidate_caption": parent_candidate.get("caption") if parent_candidate else None,
             "parent_candidate_caption_similarity_score": parent_candidate.get("caption_similarity_score") if parent_candidate else None,
+            "parent_candidate_aesthetic_score": parent_candidate.get("aesthetic_score") if parent_candidate else None,
+            "parent_candidate_aesthetic_details": parent_candidate.get("aesthetic_details") if parent_candidate else None,
             "parent_candidate_selection_score": parent_candidate.get("selection_score") if parent_candidate else None,
             "parent_candidate_selection_reasons": parent_candidate.get("selection_reasons") if parent_candidate else [],
             "refinement_lineage_depth": lineage_depth,

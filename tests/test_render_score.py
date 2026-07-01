@@ -437,13 +437,17 @@ def test_generate_can_save_ranked_candidate_artifacts(tmp_path: Path):
     assert result.metadata["recommended_candidate_rank"] in {1, 2}
     assert result.metadata["recommended_candidate_image"] in result.metadata["candidate_images"]
     assert 0.0 <= result.metadata["recommended_candidate_score"] <= 1.0
+    assert 0.0 <= result.metadata["recommended_candidate_aesthetic_score"] <= 1.0
     for candidate in candidates:
         assert "caption" in candidate
         assert "caption_similarity_score" in candidate
         assert "caption_missing_objects" in candidate
         assert "caption_missing_colors" in candidate
+        assert 0.0 <= candidate["aesthetic_score"] <= 1.0
+        assert candidate["aesthetic_details"]["contrast_score"] >= 0.0
         assert 0.0 <= candidate["selection_score"] <= 1.0
         assert candidate["selection_reasons"]
+        assert any("aesthetic_score" in reason for reason in candidate["selection_reasons"])
         image_path = Path(candidate["image"])
         assert image_path.exists()
         with Image.open(image_path) as image:

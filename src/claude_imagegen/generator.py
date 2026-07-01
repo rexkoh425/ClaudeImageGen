@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from .candidates import annotate_candidate_selection, select_recommended_candidate
+from .candidates import annotate_candidate_selection, compute_candidate_aesthetic_score, select_recommended_candidate
 from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnostics
 from .critique import write_critique_request
 from .palette import COLOR_RGB, RGB, extract_reference_palette
@@ -272,6 +272,8 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "recommended_candidate_rank": recommended_candidate.get("rank") if recommended_candidate else None,
         "recommended_candidate_image": recommended_candidate.get("image") if recommended_candidate else None,
         "recommended_candidate_score": recommended_candidate.get("selection_score") if recommended_candidate else None,
+        "recommended_candidate_aesthetic_score": recommended_candidate.get("aesthetic_score") if recommended_candidate else None,
+        "recommended_candidate_aesthetic_details": recommended_candidate.get("aesthetic_details") if recommended_candidate else None,
         "recommended_candidate_reasons": recommended_candidate.get("selection_reasons") if recommended_candidate else [],
         "revision_hints": _revision_hints(
             spec=spec,
@@ -595,6 +597,7 @@ def _write_candidate_artifacts(
             if caption_result.backend == "none"
             else caption_prompt_diagnostics(prompt, caption_result.caption)
         )
+        aesthetic_score, aesthetic_details = compute_candidate_aesthetic_score(candidate.image)
         entry: dict[str, object] = {
             "rank": rank,
             "iteration": candidate.iteration,
@@ -619,6 +622,8 @@ def _write_candidate_artifacts(
             "caption_missing_colors": list(caption_diagnostics.missing_colors),
             "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
             "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
+            "aesthetic_score": aesthetic_score,
+            "aesthetic_details": aesthetic_details,
         }
         entries.append(annotate_candidate_selection(entry))
 
@@ -678,7 +683,8 @@ def _write_candidate_contact_sheet(
 def _candidate_contact_sheet_label(entry: dict[str, object]) -> str:
     total_score = float(entry.get("total_score", 0.0))
     selection_score = float(entry.get("selection_score", 0.0))
-    return f"#{entry['rank']} iter {entry['iteration']} score {total_score:.3f} sel {selection_score:.3f}"
+    aesthetic_score = float(entry.get("aesthetic_score", 0.0))
+    return f"#{entry['rank']} iter {entry['iteration']} score {total_score:.3f} sel {selection_score:.3f} aes {aesthetic_score:.3f}"
 
 
 def _truncate_text_to_width(draw: ImageDraw.ImageDraw, text: str, max_width: int) -> str:

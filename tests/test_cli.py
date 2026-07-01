@@ -180,6 +180,7 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert metadata["candidate_count"] == 2
     assert metadata["candidate_index"] == str(candidates_path)
     assert metadata["candidate_contact_sheet"] == str(contact_sheet_path)
+    assert 0.0 <= metadata["recommended_candidate_aesthetic_score"] <= 1.0
     assert metadata["quality_report"] == str(quality_path)
     assert metadata["critique_request"] == str(critique_request_path)
     assert metadata["quality_status"] in {"pass", "review", "revise"}
@@ -188,6 +189,7 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     quality_report = json.loads(quality_path.read_text(encoding="utf-8"))
     assert quality_report["status"] == metadata["quality_status"]
     assert quality_report["quality_score"] == metadata["quality_score"]
+    assert quality_report["recommended_candidate_aesthetic_score"] == metadata["recommended_candidate_aesthetic_score"]
 
     critique_request = json.loads(critique_request_path.read_text(encoding="utf-8"))
     assert critique_request["image"] == str(image_path)
@@ -204,6 +206,9 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
     assert len(candidates) == 2
     assert all(candidate["caption"] for candidate in candidates)
     assert all("caption_similarity_score" in candidate for candidate in candidates)
+    assert all(0.0 <= candidate["aesthetic_score"] <= 1.0 for candidate in candidates)
+    assert all(candidate["aesthetic_details"]["brightness_score"] >= 0.0 for candidate in candidates)
+    assert all(any("aesthetic_score" in reason for reason in candidate["selection_reasons"]) for candidate in candidates)
     assert all((output_dir / candidate["image"]).exists() or Path(candidate["image"]).exists() for candidate in candidates)
 
     with pixels_path.open(newline="", encoding="utf-8") as handle:
@@ -564,6 +569,7 @@ def test_cli_refine_can_start_from_saved_candidate_rank(tmp_path: Path):
     assert metadata["parent_candidate_iteration"] == selected["iteration"]
     assert metadata["parent_candidate_total_score"] == selected["total_score"]
     assert metadata["parent_candidate_caption"] == selected["caption"]
+    assert metadata["parent_candidate_aesthetic_score"] == selected["aesthetic_score"]
     assert metadata["parent_image"] == str(selected_image)
     assert metadata["initial_image"] == str(selected_image)
 
@@ -645,6 +651,7 @@ def test_cli_refine_can_auto_select_saved_candidate_rank(tmp_path: Path):
     assert metadata["parent_candidate_image"] == str(selected_image)
     assert metadata["parent_candidate_selection_score"] == 0.98
     assert metadata["parent_candidate_selection_reasons"] == ["forced higher score for test"]
+    assert metadata["parent_candidate_aesthetic_score"] == selected["aesthetic_score"]
     assert metadata["parent_image"] == str(selected_image)
     assert metadata["initial_image"] == str(selected_image)
 
