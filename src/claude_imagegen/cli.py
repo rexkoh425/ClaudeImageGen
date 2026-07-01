@@ -8,6 +8,9 @@ from .generator import GenerateOptions, generate_image
 from .refine import RefineOptions, refine_image
 from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verification
 
+SIMILARITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip")
+STRONG_SIMILARITY_BACKENDS = ("transformers-clip", "transformers-siglip")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="claude-imagegen")
@@ -33,13 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate.add_argument(
         "--similarity-backend",
-        choices=("local", "transformers-clip"),
+        choices=SIMILARITY_BACKENDS,
         default="local",
         help="Similarity scorer for prompt/image alignment.",
     )
     generate.add_argument(
         "--similarity-model",
-        help="Optional model id/path for --similarity-backend transformers-clip.",
+        help="Optional model id/path for model-backed similarity backends.",
     )
     generate.add_argument(
         "--similarity-device",
@@ -97,13 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refine.add_argument(
         "--similarity-backend",
-        choices=("local", "transformers-clip"),
+        choices=SIMILARITY_BACKENDS,
         default="local",
         help="Similarity scorer for prompt/image alignment.",
     )
     refine.add_argument(
         "--similarity-model",
-        help="Optional model id/path for --similarity-backend transformers-clip.",
+        help="Optional model id/path for model-backed similarity backends.",
     )
     refine.add_argument(
         "--similarity-device",
@@ -157,14 +160,20 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--max-iterations", type=int, default=3)
     verify.add_argument("--threshold", type=float, default=0.99)
     verify.add_argument("--save-candidates", type=int, default=2)
-    verify.add_argument("--strong-model", action="store_true", help="Also run one CLIP/BLIP-backed verification case.")
+    verify.add_argument("--strong-model", action="store_true", help="Also run one model-backed similarity plus BLIP verification case.")
+    verify.add_argument(
+        "--strong-similarity-backend",
+        choices=STRONG_SIMILARITY_BACKENDS,
+        default="transformers-clip",
+        help="Model-backed similarity scorer to use for --strong-model.",
+    )
     verify.add_argument(
         "--strong-model-device",
         choices=("auto", "cpu", "cuda"),
         default="auto",
-        help="Device for optional CLIP/BLIP verification.",
+        help="Device for optional model-backed verification.",
     )
-    verify.add_argument("--similarity-model", help="Optional CLIP model id/path for --strong-model.")
+    verify.add_argument("--similarity-model", help="Optional similarity model id/path for --strong-model.")
     verify.add_argument("--caption-model", help="Optional BLIP model id/path for --strong-model.")
     return parser
 
@@ -266,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
                 threshold=args.threshold,
                 save_candidates=args.save_candidates,
                 strong_model=args.strong_model,
+                strong_similarity_backend=args.strong_similarity_backend,
                 strong_model_device=args.strong_model_device,
                 similarity_model=args.similarity_model,
                 caption_model=args.caption_model,

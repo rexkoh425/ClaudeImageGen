@@ -28,6 +28,7 @@ OBJECT_FEATURES = (
 STYLE_FEATURES = ("cinematic", "watercolor", "dreamy")
 MOOD_FEATURES = ("bright", "soft", "quiet", "calm", "dark", "stormy", "dramatic", "warm")
 DEFAULT_CLIP_MODEL = "openai/clip-vit-base-patch32"
+DEFAULT_SIGLIP_MODEL = "google/siglip-base-patch16-224"
 IMAGE_SIMILARITY_SIZE = (128, 128)
 
 
@@ -98,7 +99,7 @@ def image_similarity_details(
     }
 
     normalized_backend = similarity_backend.strip().lower()
-    if normalized_backend in {"clip", "transformers-clip"}:
+    if _is_clip_backend(normalized_backend):
         clip_score = _clip_image_image_score(
             image_rgb,
             comparison_rgb,
@@ -107,6 +108,15 @@ def image_similarity_details(
         )
         details["clip_image_cosine_score"] = round(clip_score, 6)
         continuity_score = _clamp01((0.72 * local_continuity_score) + (0.28 * clip_score))
+    elif _is_siglip_backend(normalized_backend):
+        siglip_score = _siglip_image_image_score(
+            image_rgb,
+            comparison_rgb,
+            model_name=similarity_model or DEFAULT_SIGLIP_MODEL,
+            device=similarity_device,
+        )
+        details["siglip_image_cosine_score"] = round(siglip_score, 6)
+        continuity_score = _clamp01((0.72 * local_continuity_score) + (0.28 * siglip_score))
     else:
         continuity_score = local_continuity_score
 
@@ -286,11 +296,18 @@ def _similarity_score(
     normalized_backend = backend.strip().lower()
     if normalized_backend == "local":
         return _text_image_cosine_score(array, spec)
-    if normalized_backend in {"clip", "transformers-clip"}:
+    if _is_clip_backend(normalized_backend):
         return _clip_text_image_score(
             image,
             spec.normalized,
             model_name=model_name or DEFAULT_CLIP_MODEL,
+            device=device,
+        )
+    if _is_siglip_backend(normalized_backend):
+        return _siglip_text_image_score(
+            image,
+            spec.normalized,
+            model_name=model_name or DEFAULT_SIGLIP_MODEL,
             device=device,
         )
     raise ValueError(f"Unsupported similarity backend: {backend}")
@@ -417,6 +434,44 @@ def _clip_image_image_score(
     return _clamp01((similarity + 1.0) / 2.0)
 
 
+def _siglip_text_image_score(image: Image.Image, text: str, *, model_name: str, device: str) -> float:
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-siglip similarity backend requires torch and transformers.") from exc
+
+    resolved_device = _resolve_torch_device(torch, device)
+    processor, model = _load_siglip_model(model_name, resolved_device)
+    inputs = processor(text=[text], images=image, return_tensors="pt", padding="max_length")
+    inputs = inputs.to(resolved_device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        score = torch.sigmoid(outputs.logits_per_image[0, 0]).item()
+    return _clamp01(score)
+
+
+def _siglip_image_image_score(
+    image: Image.Image,
+    comparison_image: Image.Image,
+    *,
+    model_name: str,
+    device: str,
+) -> float:
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-siglip image similarity requires torch and transformers.") from exc
+
+    resolved_device = _resolve_torch_device(torch, device)
+    processor, model = _load_siglip_model(model_name, resolved_device)
+    inputs = processor(images=[comparison_image, image], return_tensors="pt")
+    pixel_values = inputs["pixel_values"].to(resolved_device)
+    with torch.no_grad():
+        embeddings = model.get_image_features(pixel_values=pixel_values)
+        similarity = torch.nn.functional.cosine_similarity(embeddings[0:1], embeddings[1:2]).item()
+    return _clamp01((similarity + 1.0) / 2.0)
+
+
 def _image_similarity_arrays(image: Image.Image, comparison_image: Image.Image) -> tuple[np.ndarray, np.ndarray]:
     image_resized = image.resize(IMAGE_SIMILARITY_SIZE, Image.Resampling.BICUBIC)
     comparison_resized = comparison_image.resize(IMAGE_SIMILARITY_SIZE, Image.Resampling.BICUBIC)
@@ -482,6 +537,14 @@ def _resolve_torch_device(torch_module: object, device: str) -> str:
     return normalized
 
 
+def _is_clip_backend(normalized_backend: str) -> bool:
+    return normalized_backend in {"clip", "transformers-clip"}
+
+
+def _is_siglip_backend(normalized_backend: str) -> bool:
+    return normalized_backend in {"siglip", "transformers-siglip"}
+
+
 @lru_cache(maxsize=2)
 def _load_clip_model(model_name: str, device: str) -> tuple[object, object]:
     try:
@@ -491,6 +554,20 @@ def _load_clip_model(model_name: str, device: str) -> tuple[object, object]:
 
     processor = CLIPProcessor.from_pretrained(model_name)
     model = CLIPModel.from_pretrained(model_name)
+    model.to(device)
+    model.eval()
+    return processor, model
+
+
+@lru_cache(maxsize=2)
+def _load_siglip_model(model_name: str, device: str) -> tuple[object, object]:
+    try:
+        from transformers import SiglipModel, SiglipProcessor
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-siglip similarity backend requires torch and transformers.") from exc
+
+    processor = SiglipProcessor.from_pretrained(model_name)
+    model = SiglipModel.from_pretrained(model_name)
     model.to(device)
     model.eval()
     return processor, model

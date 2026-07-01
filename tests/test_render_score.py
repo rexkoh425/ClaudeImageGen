@@ -150,6 +150,53 @@ def test_initial_similarity_details_include_clip_image_cosine_when_clip_backend_
     assert result.metadata["similarity_backend"] == "transformers-clip"
 
 
+def test_scoring_can_use_siglip_backend(monkeypatch):
+    spec = parse_prompt("red sun over blue ocean")
+    image = render_candidate(build_initial_candidate(spec, seed=3), width=96, height=64)
+
+    monkeypatch.setattr(score_module, "_siglip_text_image_score", lambda *args, **kwargs: 0.74)
+
+    score = score_image(
+        image,
+        spec,
+        similarity_backend="transformers-siglip",
+        similarity_model="google/siglip-base-patch16-224",
+        similarity_device="cuda",
+    )
+
+    assert score.details["cosine_score"] == 0.74
+    assert score.text_score > 0.0
+
+
+def test_initial_similarity_details_include_siglip_image_cosine_when_siglip_backend_is_active(tmp_path: Path, monkeypatch):
+    initial = tmp_path / "initial.png"
+    Image.new("RGB", (32, 32), (200, 40, 120)).save(initial)
+
+    monkeypatch.setattr(score_module, "_siglip_text_image_score", lambda *args, **kwargs: 0.62)
+    monkeypatch.setattr(score_module, "_siglip_image_image_score", lambda *args, **kwargs: 0.81)
+
+    result = generate_image(
+        GenerateOptions(
+            prompt="abstract poster",
+            output_dir=tmp_path / "out",
+            initial_image=initial,
+            width=80,
+            height=50,
+            max_iterations=1,
+            seed=5,
+            threshold=0.1,
+            similarity_backend="transformers-siglip",
+            similarity_model="google/siglip-base-patch16-224",
+            similarity_device="cuda",
+        )
+    )
+
+    initial_details = result.metadata["initial_similarity_details"]
+    assert initial_details["siglip_image_cosine_score"] == 0.81
+    assert initial_details["continuity_score"] == result.metadata["initial_similarity_score"]
+    assert result.metadata["similarity_backend"] == "transformers-siglip"
+
+
 def test_scene_plan_generation_auto_refines_missing_prompt_objects(tmp_path: Path):
     plan_path = tmp_path / "scene-plan.json"
     plan_path.write_text(

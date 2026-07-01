@@ -156,7 +156,7 @@ Use `--save-candidates N` on either `generate` or `refine` when Claude Code shou
 
 The default scorer is `--similarity-backend local`, a deterministic shared feature-vector cosine scorer over prompt colors, objects, mood/style terms, image color presence, region/object proxies, edge density, and contrast. This keeps tests offline and fast.
 
-For stronger text-image scoring, use the optional Transformers CLIP backend when `torch`, `transformers`, and the selected model are available:
+For stronger text-image scoring, use an optional Transformers backend when `torch`, `transformers`, and the selected model are available. CLIP computes the familiar embedding cosine baseline:
 
 ```bash
 claude-imagegen generate \
@@ -172,7 +172,21 @@ claude-imagegen generate \
 
 `--similarity-device auto` uses CUDA through PyTorch when available, otherwise CPU. This optional backend scores prompt-image cosine similarity; it does not turn the renderer into a diffusion model.
 
-When refining from an initial image with `--similarity-backend transformers-clip`, `initial_similarity_details` also includes `clip_image_cosine_score`, an image-embedding cosine between the new image and the selected parent image. The final `initial_similarity_score` blends local continuity with that CLIP image cosine, giving Claude Code a stronger continuity signal when cached local model weights are available.
+SigLIP is also available and is a better fit for single prompt/image scoring loops because it uses an independent sigmoid score per image-text pair:
+
+```bash
+claude-imagegen generate \
+  --prompt "cinematic red sun over a blue ocean with misty mountains" \
+  --scene-plan claude-imagegen-output/demo/scene-plan.json \
+  --output-dir claude-imagegen-output/demo-siglip \
+  --width 1024 \
+  --height 768 \
+  --similarity-backend transformers-siglip \
+  --similarity-model google/siglip-base-patch16-224 \
+  --similarity-device auto
+```
+
+When refining from an initial image with `--similarity-backend transformers-clip`, `initial_similarity_details` also includes `clip_image_cosine_score`; with `--similarity-backend transformers-siglip`, it includes `siglip_image_cosine_score`. Both are image-embedding cosines between the new image and the selected parent image. The final `initial_similarity_score` blends local continuity with the optional model-backed image cosine, giving Claude Code a stronger continuity signal when cached local model weights are available.
 
 ## Caption Backchecking
 
@@ -281,7 +295,7 @@ python -m claude_imagegen.cli generate --prompt "red sun over blue ocean" --outp
 claude-imagegen verify --output-dir claude-imagegen-output/verification --size 320x192 --size 768x432 --size 1024x640
 ```
 
-`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one CLIP/BLIP-backed verification case when local `torch`, `transformers`, and model weights are available.
+`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one model-backed similarity plus BLIP verification case when local `torch`, `transformers`, and model weights are available. Use `--strong-similarity-backend transformers-siglip --similarity-model google/siglip-base-patch16-224` to run the strong case with SigLIP instead of CLIP.
 
 If the local Claude Code build supports plugin validation:
 
@@ -292,7 +306,7 @@ claude plugin validate .claude-plugin/marketplace.json --strict
 
 ## Current Limits
 
-- The default scorer and captioner are lightweight local surrogates; optional `transformers-clip` and `transformers-blip` can use stronger local models when dependencies and weights are available.
+- The default scorer and captioner are lightweight local surrogates; optional `transformers-clip`, `transformers-siglip`, and `transformers-blip` can use stronger local models when dependencies and weights are available.
 - Image quality is closer to procedural concept art than diffusion output.
 - Keyword-only prompt understanding is dictionary-based; planned generation shifts composition and prompt interpretation to Claude Code through `scene-plan.json`.
 - No GPU diffusion, external image API, or large model weights are used by default. GPU is only used by optional model-backed similarity and caption backchecking.

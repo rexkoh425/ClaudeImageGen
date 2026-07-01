@@ -105,8 +105,9 @@ how each maps to this code-only loop, are below.
 - **SigLIP / SigLIP2** ([SigLIP](https://arxiv.org/abs/2303.15343)) replace CLIP's batch-softmax
   with an independent sigmoid per image-text pair. That is a better fit when scoring a single
   prompt/image pair in an iterative loop because there is no dependence on a batch of negatives,
-  and SigLIP2 reports richer, more invertible features. This is the recommended drop-in upgrade
-  for the optional model-backed text scorer.
+  and SigLIP2 reports richer, more invertible features. This project implements the optional
+  `transformers-siglip` backend with `google/siglip-base-patch16-224` as the default model-backed
+  scorer, and also uses SigLIP image embeddings for continuity when refining from a parent image.
 - **VQAScore** ([Lin et al., ECCV 2024](https://linzhiqiu.github.io/papers/vqascore/)) asks a
   visual-question-answering model "Does this figure show {text}?" and uses P(yes). It is
   state-of-the-art for image-text alignment correlation with humans across many benchmarks and
@@ -134,7 +135,9 @@ how each maps to this code-only loop, are below.
 - **LPIPS** ([Zhang et al., 2018](https://arxiv.org/abs/1801.03924)) compares deep CNN features and
   tracks low-level human perception well, but is not semantic: two images can look similar and mean
   very different things.
-- **CLIP image embeddings** give a 512-d semantic vector; good at details and text-guided retrieval.
+- **CLIP and SigLIP image embeddings** provide semantic image vectors that can be blended with local
+  continuity checks. The current optional backends add `clip_image_cosine_score` or
+  `siglip_image_cosine_score` to `initial_similarity_details` during refine/initial-image runs.
 - **DINOv2** ([Oquab et al., 2023](https://arxiv.org/abs/2304.07193)) is self-supervised, 768-d, and
   **outperforms CLIP for pure image-to-image similarity**, especially at identifying the primary
   subject and fine-grained distinctions. It is the recommended optional backend for the

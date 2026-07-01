@@ -8,11 +8,11 @@ from pathlib import Path
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .refine import RefineOptions, refine_image
 from .render import cap_dimensions
+from .score import DEFAULT_CLIP_MODEL, DEFAULT_SIGLIP_MODEL
 
 DEFAULT_VERIFY_SIZES = ((320, 192), (768, 432), (1024, 640))
 DEFAULT_VERIFY_PROMPT = "cinematic red robot portrait over blue ocean with clouds, reflections, and atmospheric light"
 DEFAULT_REFINE_PROMPT = "cinematic red robot portrait over blue ocean with brighter clouds and stronger water reflections"
-DEFAULT_CLIP_MODEL = "openai/clip-vit-base-patch32"
 DEFAULT_BLIP_MODEL = "Salesforce/blip-image-captioning-base"
 
 
@@ -26,6 +26,7 @@ class VerifyOptions:
     threshold: float = 0.99
     save_candidates: int = 2
     strong_model: bool = False
+    strong_similarity_backend: str = "transformers-clip"
     strong_model_device: str = "auto"
     similarity_model: str | None = None
     caption_model: str | None = None
@@ -95,6 +96,7 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
         "refine_prompt": options.refine_prompt,
         "sizes": [f"{width}x{height}" for width, height in options.sizes],
         "strong_model": strong_model_status,
+        "strong_similarity_backend": options.strong_similarity_backend if options.strong_model else None,
         "cases": cases,
     }
     report_path = output_dir / "verification-report.json"
@@ -132,8 +134,8 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
                 threshold=0.1,
                 seed=911,
                 save_candidates=1,
-                similarity_backend="transformers-clip",
-                similarity_model=options.similarity_model or DEFAULT_CLIP_MODEL,
+                similarity_backend=options.strong_similarity_backend,
+                similarity_model=options.similarity_model or _default_similarity_model(options.strong_similarity_backend),
                 similarity_device=options.strong_model_device,
                 caption_backend="transformers-blip",
                 caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
@@ -154,6 +156,13 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
 
     cases.append(_case_report("strong-model", result, requested_size=cap_dimensions(width, height)))
     return "pass"
+
+
+def _default_similarity_model(similarity_backend: str) -> str:
+    normalized = similarity_backend.strip().lower()
+    if normalized in {"siglip", "transformers-siglip"}:
+        return DEFAULT_SIGLIP_MODEL
+    return DEFAULT_CLIP_MODEL
 
 
 def _case_report(case_type: str, result: GenerateResult, *, requested_size: tuple[int, int]) -> dict[str, object]:
@@ -185,6 +194,8 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "total_score": metadata.get("total_score"),
         "caption_similarity_score": metadata.get("caption_similarity_score"),
         "initial_similarity_score": metadata.get("initial_similarity_score"),
+        "similarity_backend": metadata.get("similarity_backend"),
+        "similarity_model": metadata.get("similarity_model"),
         "effective_similarity_device": metadata.get("effective_similarity_device"),
         "effective_caption_device": metadata.get("effective_caption_device"),
         "parent_candidate_selection": metadata.get("parent_candidate_selection"),

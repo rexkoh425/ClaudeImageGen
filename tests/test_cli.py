@@ -7,6 +7,56 @@ from pathlib import Path
 
 from PIL import Image
 
+from claude_imagegen.cli import build_parser
+
+
+def test_cli_accepts_siglip_similarity_backend_options():
+    parser = build_parser()
+
+    generate_args = parser.parse_args(
+        [
+            "generate",
+            "--prompt",
+            "red sun over blue ocean",
+            "--output-dir",
+            "out",
+            "--similarity-backend",
+            "transformers-siglip",
+            "--similarity-model",
+            "google/siglip-base-patch16-224",
+        ]
+    )
+    assert generate_args.similarity_backend == "transformers-siglip"
+    assert generate_args.similarity_model == "google/siglip-base-patch16-224"
+
+    refine_args = parser.parse_args(
+        [
+            "refine",
+            "--from-dir",
+            "base",
+            "--prompt",
+            "add clouds",
+            "--output-dir",
+            "refined",
+            "--similarity-backend",
+            "transformers-siglip",
+        ]
+    )
+    assert refine_args.similarity_backend == "transformers-siglip"
+
+    verify_args = parser.parse_args(
+        [
+            "verify",
+            "--strong-model",
+            "--strong-similarity-backend",
+            "transformers-siglip",
+            "--similarity-model",
+            "google/siglip-base-patch16-224",
+        ]
+    )
+    assert verify_args.strong_similarity_backend == "transformers-siglip"
+    assert verify_args.similarity_model == "google/siglip-base-patch16-224"
+
 
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):
     output_dir = tmp_path / "generated"
