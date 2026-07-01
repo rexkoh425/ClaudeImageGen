@@ -76,7 +76,7 @@ At 2048x2048 there are 4,194,304 pixels. Even a compact textual RGB representati
 
 ## Future Upgrade Path
 
-- Add SigLIP and ONNX-backed CLIP/SigLIP options for faster local scoring.
+- Add ONNX-backed CLIP/SigLIP/DINOv2 options for faster local scoring.
 - Add more caption backends and object-grounding checks so Claude can revise based on localized missing or mistaken objects, not only global caption overlap.
 - Add preference scoring, such as ImageReward-style candidate ranking, to choose better images when semantic cosine scores tie.
 - Add a learned patch prior or tiny autoencoder if quality becomes more important than zero-weight portability.
@@ -140,8 +140,10 @@ how each maps to this code-only loop, are below.
   `siglip_image_cosine_score` to `initial_similarity_details` during refine/initial-image runs.
 - **DINOv2** ([Oquab et al., 2023](https://arxiv.org/abs/2304.07193)) is self-supervised, 768-d, and
   **outperforms CLIP for pure image-to-image similarity**, especially at identifying the primary
-  subject and fine-grained distinctions. It is the recommended optional backend for the
-  image-embedding continuity signal.
+  subject and fine-grained distinctions. This project implements it as the optional
+  `transformers-dinov2` continuity backend with `facebook/dinov2-base`, separate from text-image
+  scoring so a refine run can use SigLIP for prompt alignment and DINOv2 for parent-image
+  continuity at the same time.
 - **DreamSim** ([Fu et al., 2023](https://arxiv.org/abs/2306.09344)) fuses OpenCLIP + DINO features
   and is tuned on human similarity judgements, bridging low-level (LPIPS/SSIM) and high-level (CLIP)
   similarity. It is the best single learned image-image metric to target when weights are allowed.
@@ -164,7 +166,7 @@ These are concatenated and L2-normalized into one vector; image-to-image closene
 two such vectors, remapped to 0-1. This is intentionally not CLIP/DINOv2 quality, but it is
 deterministic, auditable, fast, and — critically — always available, giving the refinement loop a
 stable quantitative closeness number to optimize. When `torch` + weights are present, the optional
-CLIP (and, in future, DINOv2/DreamSim) image-embedding cosine is blended in for a stronger signal.
+CLIP, SigLIP, or DINOv2 image-embedding cosine is blended in for a stronger continuity signal.
 
 ### How the layered signals combine in the loop
 

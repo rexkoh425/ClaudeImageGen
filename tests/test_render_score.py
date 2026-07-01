@@ -197,6 +197,42 @@ def test_initial_similarity_details_include_siglip_image_cosine_when_siglip_back
     assert result.metadata["similarity_backend"] == "transformers-siglip"
 
 
+def test_initial_similarity_can_use_dinov2_continuity_backend_independent_of_text_similarity(
+    tmp_path: Path, monkeypatch
+):
+    initial = tmp_path / "initial.png"
+    Image.new("RGB", (32, 32), (200, 40, 120)).save(initial)
+
+    monkeypatch.setattr(score_module, "_dinov2_image_image_score", lambda *args, **kwargs: 0.87)
+
+    result = generate_image(
+        GenerateOptions(
+            prompt="abstract poster",
+            output_dir=tmp_path / "out",
+            initial_image=initial,
+            width=80,
+            height=50,
+            max_iterations=1,
+            seed=5,
+            threshold=0.1,
+            similarity_backend="local",
+            similarity_device="cpu",
+            continuity_backend="transformers-dinov2",
+            continuity_model="facebook/dinov2-base",
+            continuity_device="cuda",
+        )
+    )
+
+    initial_details = result.metadata["initial_similarity_details"]
+    assert initial_details["dinov2_image_cosine_score"] == 0.87
+    assert initial_details["continuity_score"] == result.metadata["initial_similarity_score"]
+    assert result.metadata["similarity_backend"] == "local"
+    assert result.metadata["continuity_backend"] == "transformers-dinov2"
+    assert result.metadata["continuity_model"] == "facebook/dinov2-base"
+    assert result.metadata["continuity_device"] == "cuda"
+    assert result.metadata["effective_continuity_device"] == "cuda"
+
+
 def test_scene_plan_generation_auto_refines_missing_prompt_objects(tmp_path: Path):
     plan_path = tmp_path / "scene-plan.json"
     plan_path.write_text(

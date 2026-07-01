@@ -24,10 +24,19 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "transformers-siglip",
             "--similarity-model",
             "google/siglip-base-patch16-224",
+            "--continuity-backend",
+            "transformers-dinov2",
+            "--continuity-model",
+            "facebook/dinov2-base",
+            "--continuity-device",
+            "cuda",
         ]
     )
     assert generate_args.similarity_backend == "transformers-siglip"
     assert generate_args.similarity_model == "google/siglip-base-patch16-224"
+    assert generate_args.continuity_backend == "transformers-dinov2"
+    assert generate_args.continuity_model == "facebook/dinov2-base"
+    assert generate_args.continuity_device == "cuda"
 
     refine_args = parser.parse_args(
         [
@@ -40,9 +49,12 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "refined",
             "--similarity-backend",
             "transformers-siglip",
+            "--continuity-backend",
+            "transformers-dinov2",
         ]
     )
     assert refine_args.similarity_backend == "transformers-siglip"
+    assert refine_args.continuity_backend == "transformers-dinov2"
 
     verify_args = parser.parse_args(
         [
@@ -52,10 +64,16 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "transformers-siglip",
             "--similarity-model",
             "google/siglip-base-patch16-224",
+            "--strong-continuity-backend",
+            "transformers-dinov2",
+            "--continuity-model",
+            "facebook/dinov2-base",
         ]
     )
     assert verify_args.strong_similarity_backend == "transformers-siglip"
     assert verify_args.similarity_model == "google/siglip-base-patch16-224"
+    assert verify_args.strong_continuity_backend == "transformers-dinov2"
+    assert verify_args.continuity_model == "facebook/dinov2-base"
 
 
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):

@@ -37,6 +37,9 @@ class GenerateOptions:
     similarity_backend: str = "local"
     similarity_model: str | None = None
     similarity_device: str = "auto"
+    continuity_backend: str | None = None
+    continuity_model: str | None = None
+    continuity_device: str | None = None
     caption_backend: str = "local"
     caption_model: str | None = None
     caption_device: str = "auto"
@@ -184,13 +187,16 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         else caption_prompt_diagnostics(options.prompt, caption_result.caption)
     )
     recommended_candidate = select_recommended_candidate(candidate_entries) if candidate_entries else None
+    continuity_backend = options.continuity_backend or options.similarity_backend
+    continuity_model = options.continuity_model if options.continuity_backend else options.similarity_model
+    continuity_device = options.continuity_device or options.similarity_device
     initial_similarity = (
         image_similarity_details(
             best_image,
             options.initial_image,
-            similarity_backend=options.similarity_backend,
-            similarity_model=options.similarity_model,
-            similarity_device=options.similarity_device,
+            similarity_backend=continuity_backend,
+            similarity_model=continuity_model,
+            similarity_device=continuity_device,
         )
         if options.initial_image
         else None
@@ -220,6 +226,13 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "effective_similarity_device": _effective_similarity_device(
             backend=options.similarity_backend,
             requested_device=options.similarity_device,
+        ),
+        "continuity_backend": continuity_backend,
+        "continuity_model": continuity_model,
+        "continuity_device": continuity_device,
+        "effective_continuity_device": _effective_similarity_device(
+            backend=continuity_backend,
+            requested_device=continuity_device,
         ),
         "caption_backend": caption_result.backend,
         "caption_model": caption_result.model_name,

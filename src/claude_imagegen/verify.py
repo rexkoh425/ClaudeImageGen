@@ -8,7 +8,7 @@ from pathlib import Path
 from .generator import GenerateOptions, GenerateResult, generate_image
 from .refine import RefineOptions, refine_image
 from .render import cap_dimensions
-from .score import DEFAULT_CLIP_MODEL, DEFAULT_SIGLIP_MODEL
+from .score import DEFAULT_CLIP_MODEL, DEFAULT_DINOV2_MODEL, DEFAULT_SIGLIP_MODEL
 
 DEFAULT_VERIFY_SIZES = ((320, 192), (768, 432), (1024, 640))
 DEFAULT_VERIFY_PROMPT = "cinematic red robot portrait over blue ocean with clouds, reflections, and atmospheric light"
@@ -29,6 +29,8 @@ class VerifyOptions:
     strong_similarity_backend: str = "transformers-clip"
     strong_model_device: str = "auto"
     similarity_model: str | None = None
+    strong_continuity_backend: str = "local"
+    continuity_model: str | None = None
     caption_model: str | None = None
 
 
@@ -97,6 +99,7 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
         "sizes": [f"{width}x{height}" for width, height in options.sizes],
         "strong_model": strong_model_status,
         "strong_similarity_backend": options.strong_similarity_backend if options.strong_model else None,
+        "strong_continuity_backend": options.strong_continuity_backend if options.strong_model else None,
         "cases": cases,
     }
     report_path = output_dir / "verification-report.json"
@@ -155,6 +158,38 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
         return "fail"
 
     cases.append(_case_report("strong-model", result, requested_size=cap_dimensions(width, height)))
+    if options.strong_continuity_backend.strip().lower() != "local":
+        try:
+            continuity_result = refine_image(
+                RefineOptions(
+                    from_dir=result.metadata_path.parent,
+                    prompt=options.refine_prompt,
+                    output_dir=output_dir / f"strong-continuity-{width}x{height}",
+                    max_iterations=1,
+                    threshold=0.1,
+                    similarity_backend=options.strong_similarity_backend,
+                    similarity_model=options.similarity_model or _default_similarity_model(options.strong_similarity_backend),
+                    similarity_device=options.strong_model_device,
+                    continuity_backend=options.strong_continuity_backend,
+                    continuity_model=options.continuity_model or _default_continuity_model(options.strong_continuity_backend),
+                    continuity_device=options.strong_model_device,
+                    caption_backend="transformers-blip",
+                    caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
+                    caption_device=options.strong_model_device,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - depends on optional local model installs
+            cases.append(
+                {
+                    "type": "strong-continuity",
+                    "status": "fail",
+                    "size": f"{width}x{height}",
+                    "output_dir": str(output_dir / f"strong-continuity-{width}x{height}"),
+                    "error": str(exc),
+                }
+            )
+            return "fail"
+        cases.append(_case_report("strong-continuity", continuity_result, requested_size=cap_dimensions(width, height)))
     return "pass"
 
 
@@ -163,6 +198,17 @@ def _default_similarity_model(similarity_backend: str) -> str:
     if normalized in {"siglip", "transformers-siglip"}:
         return DEFAULT_SIGLIP_MODEL
     return DEFAULT_CLIP_MODEL
+
+
+def _default_continuity_model(continuity_backend: str) -> str | None:
+    normalized = continuity_backend.strip().lower()
+    if normalized in {"dinov2", "transformers-dinov2"}:
+        return DEFAULT_DINOV2_MODEL
+    if normalized in {"siglip", "transformers-siglip"}:
+        return DEFAULT_SIGLIP_MODEL
+    if normalized in {"clip", "transformers-clip"}:
+        return DEFAULT_CLIP_MODEL
+    return None
 
 
 def _case_report(case_type: str, result: GenerateResult, *, requested_size: tuple[int, int]) -> dict[str, object]:
@@ -196,7 +242,10 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "initial_similarity_score": metadata.get("initial_similarity_score"),
         "similarity_backend": metadata.get("similarity_backend"),
         "similarity_model": metadata.get("similarity_model"),
+        "continuity_backend": metadata.get("continuity_backend"),
+        "continuity_model": metadata.get("continuity_model"),
         "effective_similarity_device": metadata.get("effective_similarity_device"),
+        "effective_continuity_device": metadata.get("effective_continuity_device"),
         "effective_caption_device": metadata.get("effective_caption_device"),
         "parent_candidate_selection": metadata.get("parent_candidate_selection"),
     }

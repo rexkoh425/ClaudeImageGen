@@ -31,6 +31,9 @@ class RefineOptions:
     similarity_backend: str = "local"
     similarity_model: str | None = None
     similarity_device: str = "auto"
+    continuity_backend: str | None = None
+    continuity_model: str | None = None
+    continuity_device: str | None = None
     caption_backend: str = "local"
     caption_model: str | None = None
     caption_device: str = "auto"
@@ -69,6 +72,9 @@ def refine_image(options: RefineOptions) -> GenerateResult:
             similarity_backend=options.similarity_backend,
             similarity_model=options.similarity_model,
             similarity_device=options.similarity_device,
+            continuity_backend=options.continuity_backend,
+            continuity_model=options.continuity_model,
+            continuity_device=options.continuity_device,
             caption_backend=options.caption_backend,
             caption_model=options.caption_model,
             caption_device=options.caption_device,

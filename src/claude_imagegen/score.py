@@ -29,6 +29,7 @@ STYLE_FEATURES = ("cinematic", "watercolor", "dreamy")
 MOOD_FEATURES = ("bright", "soft", "quiet", "calm", "dark", "stormy", "dramatic", "warm")
 DEFAULT_CLIP_MODEL = "openai/clip-vit-base-patch32"
 DEFAULT_SIGLIP_MODEL = "google/siglip-base-patch16-224"
+DEFAULT_DINOV2_MODEL = "facebook/dinov2-base"
 IMAGE_SIMILARITY_SIZE = (128, 128)
 
 
@@ -117,6 +118,15 @@ def image_similarity_details(
         )
         details["siglip_image_cosine_score"] = round(siglip_score, 6)
         continuity_score = _clamp01((0.72 * local_continuity_score) + (0.28 * siglip_score))
+    elif _is_dinov2_backend(normalized_backend):
+        dinov2_score = _dinov2_image_image_score(
+            image_rgb,
+            comparison_rgb,
+            model_name=similarity_model or DEFAULT_DINOV2_MODEL,
+            device=similarity_device,
+        )
+        details["dinov2_image_cosine_score"] = round(dinov2_score, 6)
+        continuity_score = _clamp01((0.68 * local_continuity_score) + (0.32 * dinov2_score))
     else:
         continuity_score = local_continuity_score
 
@@ -472,6 +482,31 @@ def _siglip_image_image_score(
     return _clamp01((similarity + 1.0) / 2.0)
 
 
+def _dinov2_image_image_score(
+    image: Image.Image,
+    comparison_image: Image.Image,
+    *,
+    model_name: str,
+    device: str,
+) -> float:
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-dinov2 image similarity requires torch and transformers.") from exc
+
+    resolved_device = _resolve_torch_device(torch, device)
+    processor, model = _load_dinov2_model(model_name, resolved_device)
+    inputs = processor(images=[comparison_image, image], return_tensors="pt")
+    inputs = inputs.to(resolved_device)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        embeddings = getattr(outputs, "pooler_output", None)
+        if embeddings is None:
+            embeddings = outputs.last_hidden_state[:, 0]
+        similarity = torch.nn.functional.cosine_similarity(embeddings[0:1], embeddings[1:2]).item()
+    return _clamp01((similarity + 1.0) / 2.0)
+
+
 def _image_similarity_arrays(image: Image.Image, comparison_image: Image.Image) -> tuple[np.ndarray, np.ndarray]:
     image_resized = image.resize(IMAGE_SIMILARITY_SIZE, Image.Resampling.BICUBIC)
     comparison_resized = comparison_image.resize(IMAGE_SIMILARITY_SIZE, Image.Resampling.BICUBIC)
@@ -545,6 +580,10 @@ def _is_siglip_backend(normalized_backend: str) -> bool:
     return normalized_backend in {"siglip", "transformers-siglip"}
 
 
+def _is_dinov2_backend(normalized_backend: str) -> bool:
+    return normalized_backend in {"dinov2", "transformers-dinov2"}
+
+
 @lru_cache(maxsize=2)
 def _load_clip_model(model_name: str, device: str) -> tuple[object, object]:
     try:
@@ -568,6 +607,20 @@ def _load_siglip_model(model_name: str, device: str) -> tuple[object, object]:
 
     processor = SiglipProcessor.from_pretrained(model_name)
     model = SiglipModel.from_pretrained(model_name)
+    model.to(device)
+    model.eval()
+    return processor, model
+
+
+@lru_cache(maxsize=2)
+def _load_dinov2_model(model_name: str, device: str) -> tuple[object, object]:
+    try:
+        from transformers import AutoImageProcessor, AutoModel
+    except ImportError as exc:  # pragma: no cover - depends on optional local install
+        raise RuntimeError("transformers-dinov2 image similarity requires torch and transformers.") from exc
+
+    processor = AutoImageProcessor.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name)
     model.to(device)
     model.eval()
     return processor, model

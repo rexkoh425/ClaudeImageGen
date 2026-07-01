@@ -186,7 +186,22 @@ claude-imagegen generate \
   --similarity-device auto
 ```
 
-When refining from an initial image with `--similarity-backend transformers-clip`, `initial_similarity_details` also includes `clip_image_cosine_score`; with `--similarity-backend transformers-siglip`, it includes `siglip_image_cosine_score`. Both are image-embedding cosines between the new image and the selected parent image. The final `initial_similarity_score` blends local continuity with the optional model-backed image cosine, giving Claude Code a stronger continuity signal when cached local model weights are available.
+Continuity scoring can be controlled separately from text-image scoring. By default, `--continuity-backend` inherits `--similarity-backend` when an `--initial-image` or refine parent is present. For stronger image-to-image continuity, use DINOv2:
+
+```bash
+claude-imagegen refine \
+  --from-dir claude-imagegen-output/demo-siglip \
+  --prompt "make the observatory larger while preserving the harbor composition" \
+  --output-dir claude-imagegen-output/demo-dinov2-refine \
+  --similarity-backend transformers-siglip \
+  --similarity-model google/siglip-base-patch16-224 \
+  --similarity-device auto \
+  --continuity-backend transformers-dinov2 \
+  --continuity-model facebook/dinov2-base \
+  --continuity-device auto
+```
+
+When refining from an initial image with `--similarity-backend transformers-clip`, `initial_similarity_details` also includes `clip_image_cosine_score`; with `--similarity-backend transformers-siglip`, it includes `siglip_image_cosine_score`; with `--continuity-backend transformers-dinov2`, it includes `dinov2_image_cosine_score`. These are image-embedding cosines between the new image and the selected parent image. The final `initial_similarity_score` blends local continuity with the optional model-backed image cosine, giving Claude Code a stronger continuity signal when cached local model weights are available.
 
 ## Caption Backchecking
 
@@ -295,7 +310,7 @@ python -m claude_imagegen.cli generate --prompt "red sun over blue ocean" --outp
 claude-imagegen verify --output-dir claude-imagegen-output/verification --size 320x192 --size 768x432 --size 1024x640
 ```
 
-`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one model-backed similarity plus BLIP verification case when local `torch`, `transformers`, and model weights are available. Use `--strong-similarity-backend transformers-siglip --similarity-model google/siglip-base-patch16-224` to run the strong case with SigLIP instead of CLIP.
+`claude-imagegen verify` writes `verification-report.json`, generates each requested size, saves candidate artifacts, runs one `refine --candidate-rank auto` case, and records every output's `metadata.json` and `quality-report.json`. Add `--strong-model --strong-model-device auto` to include one model-backed similarity plus BLIP verification case when local `torch`, `transformers`, and model weights are available. Use `--strong-similarity-backend transformers-siglip --similarity-model google/siglip-base-patch16-224` to run the strong case with SigLIP instead of CLIP. Add `--strong-continuity-backend transformers-dinov2 --continuity-model facebook/dinov2-base` to include an extra strong refine case with DINOv2 parent-image continuity.
 
 If the local Claude Code build supports plugin validation:
 

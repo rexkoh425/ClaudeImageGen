@@ -10,6 +10,8 @@ from .verify import DEFAULT_VERIFY_SIZES, VerifyOptions, parse_size, run_verific
 
 SIMILARITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip")
 STRONG_SIMILARITY_BACKENDS = ("transformers-clip", "transformers-siglip")
+CONTINUITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip", "transformers-dinov2")
+STRONG_CONTINUITY_BACKENDS = ("local", "transformers-clip", "transformers-siglip", "transformers-dinov2")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +51,20 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("auto", "cpu", "cuda"),
         default="auto",
         help="Device for optional model-backed similarity scoring.",
+    )
+    generate.add_argument(
+        "--continuity-backend",
+        choices=CONTINUITY_BACKENDS,
+        help="Image-to-image continuity scorer for --initial-image; defaults to --similarity-backend.",
+    )
+    generate.add_argument(
+        "--continuity-model",
+        help="Optional model id/path for model-backed continuity scoring.",
+    )
+    generate.add_argument(
+        "--continuity-device",
+        choices=("auto", "cpu", "cuda"),
+        help="Device for optional model-backed continuity scoring; defaults to --similarity-device.",
     )
     generate.add_argument(
         "--caption-backend",
@@ -115,6 +131,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Device for optional model-backed similarity scoring.",
     )
     refine.add_argument(
+        "--continuity-backend",
+        choices=CONTINUITY_BACKENDS,
+        help="Image-to-image continuity scorer for the parent/initial image; defaults to --similarity-backend.",
+    )
+    refine.add_argument(
+        "--continuity-model",
+        help="Optional model id/path for model-backed continuity scoring.",
+    )
+    refine.add_argument(
+        "--continuity-device",
+        choices=("auto", "cpu", "cuda"),
+        help="Device for optional model-backed continuity scoring; defaults to --similarity-device.",
+    )
+    refine.add_argument(
         "--caption-backend",
         choices=("none", "local", "transformers-blip"),
         default="local",
@@ -174,6 +204,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Device for optional model-backed verification.",
     )
     verify.add_argument("--similarity-model", help="Optional similarity model id/path for --strong-model.")
+    verify.add_argument(
+        "--strong-continuity-backend",
+        choices=STRONG_CONTINUITY_BACKENDS,
+        default="local",
+        help="Optional image-to-image continuity scorer for an extra strong-model refine case.",
+    )
+    verify.add_argument("--continuity-model", help="Optional continuity model id/path for --strong-continuity-backend.")
     verify.add_argument("--caption-model", help="Optional BLIP model id/path for --strong-model.")
     return parser
 
@@ -201,6 +238,9 @@ def main(argv: list[str] | None = None) -> int:
                 similarity_backend=args.similarity_backend,
                 similarity_model=args.similarity_model,
                 similarity_device=args.similarity_device,
+                continuity_backend=args.continuity_backend,
+                continuity_model=args.continuity_model,
+                continuity_device=args.continuity_device,
                 caption_backend=args.caption_backend,
                 caption_model=args.caption_model,
                 caption_device=args.caption_device,
@@ -237,6 +277,9 @@ def main(argv: list[str] | None = None) -> int:
                 similarity_backend=args.similarity_backend,
                 similarity_model=args.similarity_model,
                 similarity_device=args.similarity_device,
+                continuity_backend=args.continuity_backend,
+                continuity_model=args.continuity_model,
+                continuity_device=args.continuity_device,
                 caption_backend=args.caption_backend,
                 caption_model=args.caption_model,
                 caption_device=args.caption_device,
@@ -278,6 +321,8 @@ def main(argv: list[str] | None = None) -> int:
                 strong_similarity_backend=args.strong_similarity_backend,
                 strong_model_device=args.strong_model_device,
                 similarity_model=args.similarity_model,
+                strong_continuity_backend=args.strong_continuity_backend,
+                continuity_model=args.continuity_model,
                 caption_model=args.caption_model,
             )
         )
