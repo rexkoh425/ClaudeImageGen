@@ -114,7 +114,9 @@ how each maps to this code-only loop, are below.
   handles compositional prompts far better than CLIPScore. **This is the single most important
   reference for this project**, because Claude Code can compute a VQAScore-style judgement
   natively: open the rendered PNG, answer how well each requested element is present, and return a
-  structured 0-1 score. No external model is required.
+  structured 0-1 score. `critique-request.json` turns that into concrete `visual_checklist`
+  questions for requested objects/colors, and `critique.json` returns the answers as
+  `element_checks`. No external model is required.
 - **TIT-Score / image-to-text-to-text consistency**
   ([2025](https://arxiv.org/pdf/2510.02987)) captions the image and compares the caption back to
   the prompt in text space, which is robust for long prompts. This is the existing caption

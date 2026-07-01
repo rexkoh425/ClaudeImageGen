@@ -54,6 +54,7 @@ class VisualCritique:
     missing: tuple[str, ...]
     wrong: tuple[str, ...]
     extra: tuple[str, ...]
+    element_checks: tuple[dict[str, Any], ...]
     edits: tuple[dict[str, Any], ...]
     notes: str
 
@@ -114,10 +115,12 @@ def build_critique_request(
     """Build a stable Claude-vision judge request from run metadata."""
     quality_status = str(metadata.get("quality_status") or "")
     suggested_verdict = ACCEPT if quality_status == "pass" else REVISE
+    visual_checklist = _visual_checklist(metadata)
     return {
         "judge": "claude-vision",
         "instructions": (
-            "Open image.png, compare it against the prompt and metadata, then write only JSON "
+            "Open image.png, answer each visual_checklist item like a VQAScore-style yes/no "
+            "question, compare the image against the prompt and metadata, then write only JSON "
             "matching expected_response. Use edits only from allowed_edit_actions so refine "
             "--critique can apply them automatically."
         ),
@@ -136,10 +139,12 @@ def build_critique_request(
         "caption_similarity_score": metadata.get("caption_similarity_score"),
         "initial_similarity_score": metadata.get("initial_similarity_score"),
         "revision_hints": _str_list(metadata.get("revision_hints")),
+        "visual_checklist": visual_checklist,
         "allowed_edit_actions": known_edit_actions(),
         "expected_response": {
             "closeness_score": None,
             "verdict": suggested_verdict,
+            "element_checks": _expected_element_checks(visual_checklist),
             "summary": "",
             "present": [],
             "missing": [],
@@ -221,6 +226,7 @@ def parse_critique(source: Path | str | dict[str, Any]) -> VisualCritique:
         missing=_str_tuple(data.get("missing")),
         wrong=_str_tuple(data.get("wrong")),
         extra=_str_tuple(data.get("extra")),
+        element_checks=_element_check_tuple(data.get("element_checks")),
         edits=_edit_tuple(data.get("edits")),
         notes=str(data.get("notes", "")).strip(),
     )
@@ -237,6 +243,7 @@ def critique_signal(critique: VisualCritique, applied_edits: list[str] | None = 
         "missing": list(critique.missing),
         "wrong": list(critique.wrong),
         "extra": list(critique.extra),
+        "element_checks": [dict(check) for check in critique.element_checks],
         "requested_edits": [dict(edit) for edit in critique.edits],
         "applied_edits": list(applied_edits or []),
         "notes": critique.notes,
@@ -492,6 +499,69 @@ def _str_or_none(value: object) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _visual_checklist(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    missing_objects = set(_str_list(metadata.get("caption_missing_objects")))
+    missing_colors = set(_str_list(metadata.get("caption_missing_colors")))
+    checklist: list[dict[str, Any]] = []
+
+    for item in sorted(set(_str_list(metadata.get("objects")))):
+        checklist.append(
+            {
+                "kind": "object",
+                "item": item,
+                "question": f"Does the image clearly show the requested object: {item}?",
+                "caption_backcheck": "missing" if item in missing_objects else "unknown",
+                "priority": "high" if item in missing_objects else "normal",
+            }
+        )
+
+    for item in sorted(set(_str_list(metadata.get("color_words")))):
+        checklist.append(
+            {
+                "kind": "color",
+                "item": item,
+                "question": f"Is the requested color visually present and attached to the right subject: {item}?",
+                "caption_backcheck": "missing" if item in missing_colors else "unknown",
+                "priority": "high" if item in missing_colors else "normal",
+            }
+        )
+
+    return sorted(
+        checklist,
+        key=lambda check: (
+            0 if check["kind"] == "object" else 1,
+            str(check["item"]),
+        ),
+    )
+
+
+def _expected_element_checks(checklist: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": str(item.get("kind", "")),
+            "item": str(item.get("item", "")),
+            "present": None,
+            "confidence": None,
+            "notes": "",
+        }
+        for item in checklist
+    ]
+
+
+def _element_check_tuple(value: object) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, list):
+        return ()
+    checks: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        check = dict(item)
+        if "confidence" in check and check["confidence"] is not None:
+            check["confidence"] = _clamp01(_to_float(check["confidence"], 0.0))
+        checks.append(check)
+    return tuple(checks)
 
 
 def _edit_tuple(value: object) -> tuple[dict[str, Any], ...]:

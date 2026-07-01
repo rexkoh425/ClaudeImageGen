@@ -35,6 +35,9 @@ def test_parse_honors_explicit_verdict_and_lists() -> None:
             "missing": ["clouds"],
             "wrong": ["mountains too bright"],
             "extra": ["red blob"],
+            "element_checks": [
+                {"kind": "object", "item": "sun", "present": True, "confidence": 0.8, "notes": "visible"}
+            ],
             "notes": "n",
         }
     )
@@ -43,6 +46,9 @@ def test_parse_honors_explicit_verdict_and_lists() -> None:
     assert critique.missing == ("clouds",)
     assert critique.wrong == ("mountains too bright",)
     assert critique.extra == ("red blob",)
+    assert critique.element_checks == (
+        {"kind": "object", "item": "sun", "present": True, "confidence": 0.8, "notes": "visible"},
+    )
 
 
 def test_parse_from_json_string() -> None:
@@ -116,11 +122,18 @@ def test_unknown_action_is_skipped_not_fatal() -> None:
 
 
 def test_critique_signal_shape() -> None:
-    critique = parse_critique({"closeness_score": 0.7, "missing": ["clouds"]})
+    critique = parse_critique(
+        {
+            "closeness_score": 0.7,
+            "missing": ["clouds"],
+            "element_checks": [{"kind": "object", "item": "cloud", "present": False}],
+        }
+    )
     signal = critique_signal(critique, applied_edits=["added object 'cloud'"])
     assert signal["judge"] == "claude-vision"
     assert signal["closeness_score"] == 0.7
     assert signal["missing"] == ["clouds"]
+    assert signal["element_checks"] == [{"kind": "object", "item": "cloud", "present": False}]
     assert signal["applied_edits"] == ["added object 'cloud'"]
 
 
@@ -137,6 +150,10 @@ def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None
         "quality_report": str(tmp_path / "quality-report.json"),
         "quality_status": "revise",
         "quality_score": 0.44,
+        "objects": ["sun", "ocean", "cloud"],
+        "color_words": ["red", "blue"],
+        "caption_missing_objects": ["cloud"],
+        "caption_missing_colors": ["red"],
         "revision_hints": ["Add missing clouds."],
     }
 
@@ -158,8 +175,52 @@ def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None
     assert request["quality_status"] == "revise"
     assert request["quality_score"] == 0.44
     assert request["revision_hints"] == ["Add missing clouds."]
+    assert request["visual_checklist"] == [
+        {
+            "kind": "object",
+            "item": "cloud",
+            "question": "Does the image clearly show the requested object: cloud?",
+            "caption_backcheck": "missing",
+            "priority": "high",
+        },
+        {
+            "kind": "object",
+            "item": "ocean",
+            "question": "Does the image clearly show the requested object: ocean?",
+            "caption_backcheck": "unknown",
+            "priority": "normal",
+        },
+        {
+            "kind": "object",
+            "item": "sun",
+            "question": "Does the image clearly show the requested object: sun?",
+            "caption_backcheck": "unknown",
+            "priority": "normal",
+        },
+        {
+            "kind": "color",
+            "item": "blue",
+            "question": "Is the requested color visually present and attached to the right subject: blue?",
+            "caption_backcheck": "unknown",
+            "priority": "normal",
+        },
+        {
+            "kind": "color",
+            "item": "red",
+            "question": "Is the requested color visually present and attached to the right subject: red?",
+            "caption_backcheck": "missing",
+            "priority": "high",
+        },
+    ]
     assert request["expected_response"]["closeness_score"] is None
     assert request["expected_response"]["verdict"] == "revise"
+    assert request["expected_response"]["element_checks"][0] == {
+        "kind": "object",
+        "item": "cloud",
+        "present": None,
+        "confidence": None,
+        "notes": "",
+    }
     assert request["expected_response"]["present"] == []
     assert request["expected_response"]["edits"] == []
     assert "add_cloud" in request["allowed_edit_actions"]
