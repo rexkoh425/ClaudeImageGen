@@ -348,6 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     enhance_night.add_argument("--mist-cap", type=float, default=0.22)
     enhance_night.add_argument("--highlight-rolloff", type=float, default=0.35)
     enhance_night.add_argument("--local-contrast", type=float, default=0.9)
+    enhance_night.add_argument("--shadow-lift", type=float, default=0.0)
 
     eval_plan = subcommands.add_parser(
         "eval-plan",
@@ -631,6 +632,7 @@ def main(argv: list[str] | None = None) -> int:
                 mist_cap=args.mist_cap,
                 highlight_rolloff=args.highlight_rolloff,
                 local_contrast=args.local_contrast,
+                shadow_lift=args.shadow_lift,
             )
         )
         print(f"Enhanced {result.image_path}")

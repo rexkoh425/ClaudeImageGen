@@ -23,6 +23,44 @@ def _hazy_night_fixture(path: Path) -> Image.Image:
     return image
 
 
+def _crushed_shadow_fixture(path: Path) -> Image.Image:
+    width, height = 96, 64
+    arr = np.full((height, width, 3), 0.11, dtype=np.float32)
+    arr[: height // 2, :, :] = 0.16
+    for x in range(width):
+        stripe = 0.035 if (x // 5) % 2 == 0 else -0.025
+        arr[height // 2 :, x, :] += stripe
+    arr[8:18, 42:54, :] = (0.85, 0.66, 0.36)
+    arr[38:58, 18:82, 1] += 0.035
+    image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
+    image.save(path)
+    return image
+
+
+def _crushed_chroma_noise_fixture(path: Path) -> Image.Image:
+    width, height = 96, 64
+    arr = np.full((height, width, 3), 0.055, dtype=np.float32)
+    arr[: height // 2, :, :] = 0.14
+    lower = arr[height // 2 :, :, :]
+    lower[::2, ::3, 2] += 0.045
+    lower[::3, ::2, 0] += 0.035
+    arr[10:18, 42:54, :] = (0.78, 0.58, 0.30)
+    image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
+    image.save(path)
+    return image
+
+
+def _midtone_foliage_fixture(path: Path) -> Image.Image:
+    width, height = 96, 64
+    arr = np.full((height, width, 3), 0.075, dtype=np.float32)
+    arr[: height // 2, :, :] = 0.14
+    arr[height // 2 :, :, :] = (0.16, 0.22, 0.15)
+    arr[8:18, 42:54, :] = (0.78, 0.58, 0.30)
+    image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
+    image.save(path)
+    return image
+
+
 def _luma_stats(image: Image.Image) -> dict[str, float]:
     arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
     luma = (0.2126 * arr[:, :, 0]) + (0.7152 * arr[:, :, 1]) + (0.0722 * arr[:, :, 2])
@@ -31,7 +69,23 @@ def _luma_stats(image: Image.Image) -> dict[str, float]:
         "mean_luma": float(np.mean(luma)),
         "max_luma": float(np.max(luma)),
         "lower_luma_std": float(np.std(lower)),
+        "lower_luma_p10": float(np.percentile(lower, 10)),
     }
+
+
+def _dark_chroma_p95(image: Image.Image) -> float:
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    luma = (0.2126 * arr[:, :, 0]) + (0.7152 * arr[:, :, 1]) + (0.0722 * arr[:, :, 2])
+    chroma = arr.max(axis=2) - arr.min(axis=2)
+    dark_chroma = chroma[luma < 0.2]
+    return float(np.percentile(dark_chroma, 95))
+
+
+def _lower_half_median_luma(image: Image.Image) -> float:
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    luma = (0.2126 * arr[:, :, 0]) + (0.7152 * arr[:, :, 1]) + (0.0722 * arr[:, :, 2])
+    lower = luma[luma.shape[0] // 2 :, :]
+    return float(np.median(lower))
 
 
 def test_enhance_night_preserves_darkness_and_writes_pair_request(tmp_path: Path):
@@ -79,6 +133,87 @@ def test_enhance_night_preserves_darkness_and_writes_pair_request(tmp_path: Path
     assert request["quality_target"] == 0.9
 
 
+def test_enhance_night_can_lift_crushed_shadows_without_breaking_night(tmp_path: Path):
+    from claude_imagegen.enhance import EnhanceNightOptions, enhance_night_image
+
+    input_path = tmp_path / "crushed-input.png"
+    before = _crushed_shadow_fixture(input_path)
+    before_stats = _luma_stats(before)
+
+    result = enhance_night_image(
+        EnhanceNightOptions(
+            input_image=input_path,
+            prompt="deep night greenhouse with warm lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "enhanced",
+            quality_target=0.9,
+            night_luma_ceiling=0.32,
+            mist_cap=0.16,
+            highlight_rolloff=0.25,
+            local_contrast=1.05,
+            shadow_lift=0.12,
+        )
+    )
+
+    after_stats = _luma_stats(result.image)
+    assert after_stats["mean_luma"] <= 0.33
+    assert after_stats["lower_luma_p10"] > before_stats["lower_luma_p10"] + 0.025
+    assert after_stats["lower_luma_std"] >= before_stats["lower_luma_std"] * 0.85
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["shadow_lift"] == 0.12
+    assert metadata["after_lower_luma_p10"] > metadata["before_lower_luma_p10"]
+
+
+def test_enhance_night_shadow_lift_does_not_amplify_chroma_speckles(tmp_path: Path):
+    from claude_imagegen.enhance import EnhanceNightOptions, enhance_night_image
+
+    input_path = tmp_path / "chroma-noise-input.png"
+    before = _crushed_chroma_noise_fixture(input_path)
+    before_chroma_p95 = _dark_chroma_p95(before)
+
+    result = enhance_night_image(
+        EnhanceNightOptions(
+            input_image=input_path,
+            prompt="deep night greenhouse with warm lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "enhanced",
+            quality_target=0.9,
+            night_luma_ceiling=0.32,
+            mist_cap=0.16,
+            highlight_rolloff=0.25,
+            local_contrast=1.05,
+            shadow_lift=0.12,
+        )
+    )
+
+    after_chroma_p95 = _dark_chroma_p95(result.image)
+    assert after_chroma_p95 <= before_chroma_p95 + 0.02
+
+
+def test_enhance_night_shadow_lift_preserves_readable_midtones(tmp_path: Path):
+    from claude_imagegen.enhance import EnhanceNightOptions, enhance_night_image
+
+    input_path = tmp_path / "midtone-input.png"
+    before = _midtone_foliage_fixture(input_path)
+    before_median = _lower_half_median_luma(before)
+
+    result = enhance_night_image(
+        EnhanceNightOptions(
+            input_image=input_path,
+            prompt="deep night greenhouse with warm lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "enhanced",
+            quality_target=0.9,
+            night_luma_ceiling=0.32,
+            mist_cap=0.16,
+            highlight_rolloff=0.25,
+            local_contrast=1.05,
+            shadow_lift=0.12,
+        )
+    )
+
+    after_median = _lower_half_median_luma(result.image)
+    assert after_median <= before_median + 0.015
+
+
 def test_cli_enhance_night_writes_artifacts_without_diffusion(tmp_path: Path):
     input_path = tmp_path / "hazy-input.png"
     _hazy_night_fixture(input_path)
@@ -104,6 +239,8 @@ def test_cli_enhance_night_writes_artifacts_without_diffusion(tmp_path: Path):
             "0.35",
             "--local-contrast",
             "0.9",
+            "--shadow-lift",
+            "0.12",
             "--quality-target",
             "0.9",
         ],
@@ -119,5 +256,6 @@ def test_cli_enhance_night_writes_artifacts_without_diffusion(tmp_path: Path):
     assert (output_dir / "pair-evaluation-request.json").exists()
     metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["backend"] == "local-postprocess"
+    assert metadata["shadow_lift"] == 0.12
     assert metadata["acceptance_requires_pair_evaluation"] is True
     assert "Pair evaluation request" in completed.stdout

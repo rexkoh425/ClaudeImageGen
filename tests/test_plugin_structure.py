@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.7"
+EXPECTED_VERSION = "0.1.8"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -56,6 +56,7 @@ def test_claude_skill_and_executable_are_present():
     assert "claude-imagegen audit-pair" in skill_text
     assert "--min-evaluations" in skill_text
     assert "--audit" in skill_text
+    assert "--shadow-lift" in skill_text
     assert "pair-evaluation-request.json" in skill_text
     assert "--scene-plan" in skill_text
     assert "scene-plan.json" in skill_text
@@ -155,6 +156,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "claude-imagegen audit-pair" in readme
     assert "--min-evaluations" in readme
     assert "--audit" in readme
+    assert "--shadow-lift" in readme
     assert "claude-imagegen setup --with-diffusion" in readme
     assert "--profile night-photoreal" in readme
     assert "scene-plan.json" in readme

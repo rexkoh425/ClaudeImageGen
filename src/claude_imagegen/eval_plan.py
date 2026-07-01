@@ -236,6 +236,7 @@ def _suggest_enhance_parameters(*, failure_modes: list[str], recommendations: li
     mist_cap = 0.2
     highlight_rolloff = 0.35
     local_contrast = 0.9
+    shadow_lift = 0.0
     if any(term in text for term in ("over-bright", "bright", "dusk", "twilight", "night-mood drift")):
         night_luma_ceiling = 0.3
     if any(term in text for term in ("haze", "mist", "bloom", "veil")):
@@ -244,12 +245,17 @@ def _suggest_enhance_parameters(*, failure_modes: list[str], recommendations: li
         highlight_rolloff = 0.25
     if any(term in text for term in ("contrast", "floor", "mid-tone", "leaf", "detail")):
         local_contrast = 1.05
-    return {
+    parameters = {
         "night_luma_ceiling": night_luma_ceiling,
         "mist_cap": mist_cap,
         "highlight_rolloff": highlight_rolloff,
         "local_contrast": local_contrast,
     }
+    if any(term in text for term in ("shadow crush", "crushed shadow", "near-black", "black point", "gamma", "shadow lift")):
+        shadow_lift = 0.08
+    if shadow_lift > 0:
+        parameters["shadow_lift"] = shadow_lift
+    return parameters
 
 
 def _enhance_command(
@@ -260,7 +266,7 @@ def _enhance_command(
     parameters: dict[str, float],
     quality_target: float,
 ) -> str:
-    return (
+    command = (
         "claude-imagegen enhance-night "
         f"--input-image \"{input_image}\" "
         f"--prompt \"{prompt}\" "
@@ -271,6 +277,10 @@ def _enhance_command(
         f"--highlight-rolloff {parameters['highlight_rolloff']:g} "
         f"--local-contrast {parameters['local_contrast']:g}"
     )
+    shadow_lift = _float_or_none(parameters.get("shadow_lift"))
+    if shadow_lift is not None and shadow_lift > 0:
+        command = f"{command} --shadow-lift {shadow_lift:g}"
+    return command
 
 
 def _acceptance_reason(

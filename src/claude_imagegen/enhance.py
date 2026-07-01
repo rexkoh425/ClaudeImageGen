@@ -21,6 +21,7 @@ class EnhanceNightOptions:
     mist_cap: float = 0.22
     highlight_rolloff: float = 0.35
     local_contrast: float = 0.9
+    shadow_lift: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
     arr = _apply_local_contrast(arr, amount=options.local_contrast)
     arr = _reduce_mist_veil(arr, cap=options.mist_cap)
     arr = _rolloff_highlights(arr, rolloff=options.highlight_rolloff)
+    arr = _lift_crushed_shadows(arr, amount=options.shadow_lift)
     arr = _enforce_luma_ceiling(arr, ceiling=options.night_luma_ceiling)
     arr = _boost_lower_half_contrast(arr, amount=options.local_contrast * 0.45)
     arr = _enforce_luma_ceiling(arr, ceiling=options.night_luma_ceiling)
@@ -71,17 +73,20 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
         "mist_cap": options.mist_cap,
         "highlight_rolloff": options.highlight_rolloff,
         "local_contrast": options.local_contrast,
+        "shadow_lift": options.shadow_lift,
         "before_mean_luma": before_stats["mean_luma"],
         "before_max_luma": before_stats["max_luma"],
         "before_lower_luma_std": before_stats["lower_luma_std"],
+        "before_lower_luma_p10": before_stats["lower_luma_p10"],
         "after_mean_luma": after_stats["mean_luma"],
         "after_max_luma": after_stats["max_luma"],
         "after_lower_luma_std": after_stats["lower_luma_std"],
+        "after_lower_luma_p10": after_stats["lower_luma_p10"],
         "acceptance_requires_pair_evaluation": True,
         "revision_hints": [
             "Use pair-evaluation-request.json with Claude vision before accepting a 0.9 target.",
             "If Claude still reports night-mood drift, lower night_luma_ceiling or mist_cap.",
-            "If floor or leaf detail remains weak, raise local_contrast conservatively.",
+            "If floor or leaf detail remains weak, raise local_contrast or shadow_lift conservatively.",
         ],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -143,6 +148,21 @@ def _rolloff_highlights(arr: np.ndarray, *, rolloff: float) -> np.ndarray:
     return np.clip(arr * scale[..., None], 0.0, 1.0)
 
 
+def _lift_crushed_shadows(arr: np.ndarray, *, amount: float) -> np.ndarray:
+    lift = max(0.0, min(0.25, float(amount)))
+    if lift <= 0:
+        return np.clip(arr, 0.0, 1.0)
+    luma = _luma(arr)
+    threshold = 0.18
+    mask = np.clip((threshold - luma) / threshold, 0.0, 1.0)
+    target_luma = np.clip(luma + (lift * mask), 0.0, 1.0)
+    neutral_delta = target_luma - luma
+    lifted = np.clip(arr + neutral_delta[..., None], 0.0, 1.0)
+    desaturation = np.clip(mask * lift * 4.0, 0.0, 0.9)
+    neutral = np.repeat(target_luma[..., None], 3, axis=2)
+    return np.clip((lifted * (1.0 - desaturation[..., None])) + (neutral * desaturation[..., None]), 0.0, 1.0)
+
+
 def _enforce_luma_ceiling(arr: np.ndarray, *, ceiling: float) -> np.ndarray:
     target = max(0.05, min(0.95, float(ceiling)))
     mean_luma = float(np.mean(_luma(arr)))
@@ -174,6 +194,7 @@ def _luma_stats(image: Image.Image) -> dict[str, float]:
         "mean_luma": round(float(np.mean(luma)), 6),
         "max_luma": round(float(np.max(luma)), 6),
         "lower_luma_std": round(float(np.std(lower)), 6),
+        "lower_luma_p10": round(float(np.percentile(lower, 10)), 6),
     }
 
 

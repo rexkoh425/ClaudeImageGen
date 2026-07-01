@@ -220,6 +220,34 @@ def test_pair_evaluation_plan_uses_local_pair_audit_evidence(tmp_path: Path):
     assert "Local audit: after image is too bright for deep night." in result.plan["code_improvement_recommendations"]
 
 
+def test_pair_evaluation_plan_recommends_shadow_lift_for_crushed_shadows(tmp_path: Path):
+    from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
+
+    response_path = tmp_path / "pair-response.json"
+    _write_pair_response(response_path)
+    data = json.loads(response_path.read_text(encoding="utf-8"))
+    data["pair_scores"][0]["failure_modes"].append("shadow crush hides midground leaf detail")
+    data["pair_scores"][0]["recommended_code_changes"].append(
+        "raise near-black lift/gamma slightly without making deep night look like dusk"
+    )
+    data["overall_failure_modes"].append("crushed shadow detail in dark corners")
+    data["code_improvement_recommendations"].append("add a controlled shadow lift for near-black foliage separation")
+    response_path.write_text(json.dumps(data), encoding="utf-8")
+
+    result = build_eval_plan(
+        EvalPlanOptions(
+            evaluation=response_path,
+            prompt="deep night glass greenhouse interior with lamps, mist, leaf detail, and wet floor reflections",
+            output_dir=tmp_path / "plan",
+            quality_target=0.9,
+            min_evaluations=1,
+        )
+    )
+
+    assert result.plan["suggested_parameters"]["shadow_lift"] == 0.08
+    assert "--shadow-lift 0.08" in result.plan["recommended_command"]
+
+
 def test_pair_evaluation_plan_cannot_accept_when_local_audit_fails(tmp_path: Path):
     from claude_imagegen.eval_plan import EvalPlanOptions, build_eval_plan
 
