@@ -75,15 +75,26 @@ def _quality_checks(metadata: dict[str, object]) -> list[dict[str, object]]:
 
     critique = metadata.get("visual_critique")
     if isinstance(critique, dict) and "closeness_score" in critique:
+        element_checks = _element_checks(critique.get("element_checks"))
+        failed_element_checks = _failed_element_checks(element_checks)
+        visual_check = _check(
+            name="visual_judgement",
+            score=_float(critique.get("closeness_score"), 0.0),
+            pass_threshold=0.78,
+            review_threshold=0.55,
+            weight=0.30,
+            detail="Claude-vision judge closeness (LMM-as-evaluator / VQAScore-style) after viewing the image.",
+        )
+        if element_checks:
+            visual_check["element_checks"] = element_checks
+        if failed_element_checks:
+            visual_check["failed_element_checks"] = failed_element_checks
+            if any(check.get("present") is False for check in failed_element_checks):
+                visual_check["status"] = "revise"
+            elif visual_check["status"] == "pass":
+                visual_check["status"] = "review"
         checks.append(
-            _check(
-                name="visual_judgement",
-                score=_float(critique.get("closeness_score"), 0.0),
-                pass_threshold=0.78,
-                review_threshold=0.55,
-                weight=0.30,
-                detail="Claude-vision judge closeness (LMM-as-evaluator / VQAScore-style) after viewing the image.",
-            )
+            visual_check
         )
 
     initial_similarity = _float_or_none(metadata.get("initial_similarity_score"))
@@ -209,6 +220,7 @@ def _next_actions(metadata: dict[str, object], checks: list[dict[str, object]], 
             actions.append(f"Judge: fix incorrect elements: {', '.join(critique_wrong)}.")
         if critique_extra:
             actions.append(f"Judge: remove or downplay unrequested elements: {', '.join(critique_extra)}.")
+        actions.extend(_element_check_actions(_element_checks(critique.get("element_checks"))))
 
     failed = [str(check.get("name")) for check in checks if check.get("status") == "revise"]
     if "prompt_alignment" in failed:
@@ -252,6 +264,88 @@ def _caption_alignment_detail(metadata: dict[str, object]) -> str:
     if backend in {"sentence", "transformers-sentence"}:
         return "Backchecked caption against the prompt with sentence-embedding semantic similarity plus object/color diagnostics."
     return "Backchecked caption overlap with requested prompt objects, colors, and tokens."
+
+
+def _element_checks(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+
+    checks: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip()
+        label = str(item.get("item") or "").strip()
+        if not kind or not label:
+            continue
+        check: dict[str, object] = {
+            "kind": kind,
+            "item": label,
+        }
+        if "present" in item:
+            present = _bool_or_none(item.get("present"))
+            if present is not None:
+                check["present"] = present
+        confidence = _float_or_none(item.get("confidence"))
+        if confidence is not None:
+            check["confidence"] = round(max(0.0, min(1.0, confidence)), 6)
+        notes = str(item.get("notes") or "").strip()
+        if notes:
+            check["notes"] = notes
+        checks.append(check)
+    return checks
+
+
+def _failed_element_checks(checks: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [check for check in checks if _element_check_failed(check)]
+
+
+def _element_check_failed(check: dict[str, object]) -> bool:
+    if check.get("present") is False:
+        return True
+    confidence = _float_or_none(check.get("confidence"))
+    return confidence is not None and confidence < 0.5
+
+
+def _element_check_actions(checks: list[dict[str, object]]) -> list[str]:
+    missing_objects: list[str] = []
+    missing_colors: list[str] = []
+    low_confidence_objects: list[str] = []
+    low_confidence_colors: list[str] = []
+
+    for check in _failed_element_checks(checks):
+        kind = str(check.get("kind") or "")
+        item = str(check.get("item") or "")
+        if not item:
+            continue
+        is_missing = check.get("present") is False
+        if kind == "object":
+            (missing_objects if is_missing else low_confidence_objects).append(item)
+        elif kind == "color":
+            (missing_colors if is_missing else low_confidence_colors).append(item)
+
+    actions: list[str] = []
+    if missing_objects:
+        actions.append(f"Judge: make missing checked objects explicit: {', '.join(dict.fromkeys(missing_objects))}.")
+    if missing_colors:
+        actions.append(f"Judge: make missing checked colors explicit: {', '.join(dict.fromkeys(missing_colors))}.")
+    if low_confidence_objects:
+        actions.append(f"Judge: clarify low-confidence checked objects: {', '.join(dict.fromkeys(low_confidence_objects))}.")
+    if low_confidence_colors:
+        actions.append(f"Judge: strengthen low-confidence checked colors: {', '.join(dict.fromkeys(low_confidence_colors))}.")
+    return actions
+
+
+def _bool_or_none(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "present"}:
+            return True
+        if normalized in {"false", "no", "missing", "absent"}:
+            return False
+    return None
 
 
 def _refinement_delta(metadata: dict[str, object], *, quality_score: float) -> dict[str, object] | None:

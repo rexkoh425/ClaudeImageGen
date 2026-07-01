@@ -83,6 +83,7 @@ def test_claude_skill_and_executable_are_present():
     assert "refine --critique" in skill_text
     assert "visual_checklist" in skill_text
     assert "element_checks" in skill_text
+    assert "failed checklist items" in skill_text
     assert "refinement_delta" in skill_text
     assert "multiscale_luminance_ssim_score" in skill_text
     assert "weakest_continuity_region" in skill_text
@@ -113,6 +114,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "critique-request.json" in readme
     assert "visual_checklist" in readme
     assert "element_checks" in readme
+    assert "failed checklist items" in readme
     assert "comparison-request.json" in readme
     assert "refinement_delta" in readme
     assert "multiscale_luminance_ssim_score" in readme
