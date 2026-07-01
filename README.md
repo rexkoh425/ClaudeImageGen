@@ -8,7 +8,7 @@ It is CPU-first by default. Optional PyTorch and Transformers checks can use CUD
 
 Claude ImageGen is available through the Claude Code plugin marketplace from this GitHub repo.
 
-In Claude Code, run:
+On another machine, install Claude Code, sign in to GitHub if this repo is private, then run this inside Claude Code:
 
 ```text
 /plugin marketplace add rexkoh425/ClaudeImageGen
@@ -16,8 +16,6 @@ In Claude Code, run:
 ```
 
 Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded.
-
-If the repo is private, sign in to GitHub on the target machine before adding the marketplace.
 
 ## Quick Start
 

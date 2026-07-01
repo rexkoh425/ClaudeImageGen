@@ -121,7 +121,8 @@ def test_readme_documents_claude_plugin_install_flow():
 
     assert len(readme.splitlines()) <= 170
     assert "Claude ImageGen is available through the Claude Code plugin marketplace" in readme
-    assert "If the repo is private" in readme
+    assert "On another machine" in readme
+    assert "sign in to GitHub if this repo is private" in readme
     assert "Restart Claude Code after installation" in readme
     assert "python -m pip install -e ." in readme
     assert "scene-plan.json" in readme
