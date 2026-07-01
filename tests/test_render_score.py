@@ -368,6 +368,22 @@ def test_generate_metadata_records_semantic_caption_similarity(tmp_path: Path, m
     assert 0.0 <= result.metadata["lexical_caption_similarity_score"] <= 1.0
 
 
+def test_generate_metadata_records_style_and_mood_words(tmp_path: Path):
+    result = generate_image(
+        GenerateOptions(
+            prompt="cinematic dramatic red sun over blue ocean",
+            output_dir=tmp_path / "out",
+            width=64,
+            height=40,
+            max_iterations=1,
+            threshold=0.1,
+        )
+    )
+
+    assert result.metadata["style_words"] == ["cinematic"]
+    assert result.metadata["mood_words"] == ["dramatic"]
+
+
 def test_generate_revision_hints_include_caption_missing_evidence(tmp_path: Path, monkeypatch):
     def bad_caption(*args, **kwargs):
         return CaptionResult(

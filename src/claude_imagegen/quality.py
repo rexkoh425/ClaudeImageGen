@@ -312,6 +312,8 @@ def _element_check_actions(checks: list[dict[str, object]]) -> list[str]:
     missing_colors: list[str] = []
     low_confidence_objects: list[str] = []
     low_confidence_colors: list[str] = []
+    weak_styles: list[str] = []
+    weak_moods: list[str] = []
 
     for check in _failed_element_checks(checks):
         kind = str(check.get("kind") or "")
@@ -323,6 +325,10 @@ def _element_check_actions(checks: list[dict[str, object]]) -> list[str]:
             (missing_objects if is_missing else low_confidence_objects).append(item)
         elif kind == "color":
             (missing_colors if is_missing else low_confidence_colors).append(item)
+        elif kind == "style":
+            weak_styles.append(item)
+        elif kind == "mood":
+            weak_moods.append(item)
 
     actions: list[str] = []
     if missing_objects:
@@ -333,6 +339,10 @@ def _element_check_actions(checks: list[dict[str, object]]) -> list[str]:
         actions.append(f"Judge: clarify low-confidence checked objects: {', '.join(dict.fromkeys(low_confidence_objects))}.")
     if low_confidence_colors:
         actions.append(f"Judge: strengthen low-confidence checked colors: {', '.join(dict.fromkeys(low_confidence_colors))}.")
+    if weak_styles:
+        actions.append(f"Judge: strengthen checked styles: {', '.join(dict.fromkeys(weak_styles))}.")
+    if weak_moods:
+        actions.append(f"Judge: make checked moods more visually explicit: {', '.join(dict.fromkeys(weak_moods))}.")
     return actions
 
 

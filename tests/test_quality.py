@@ -32,6 +32,18 @@ def test_quality_report_surfaces_failed_visual_element_checks_as_next_actions():
                         "present": True,
                         "confidence": 0.9,
                     },
+                    {
+                        "kind": "style",
+                        "item": "cinematic",
+                        "present": True,
+                        "confidence": 0.4,
+                    },
+                    {
+                        "kind": "mood",
+                        "item": "dramatic",
+                        "present": False,
+                        "confidence": 0.2,
+                    },
                 ],
             },
         }
@@ -42,6 +54,8 @@ def test_quality_report_surfaces_failed_visual_element_checks_as_next_actions():
     assert visual_check["status"] == "revise"
     assert "Judge: make missing checked objects explicit: cloud." in report["next_actions"]
     assert "Judge: strengthen low-confidence checked colors: red." in report["next_actions"]
+    assert "Judge: strengthen checked styles: cinematic." in report["next_actions"]
+    assert "Judge: make checked moods more visually explicit: dramatic." in report["next_actions"]
     assert visual_check["element_checks"][0] == {
         "kind": "object",
         "item": "cloud",
@@ -63,5 +77,17 @@ def test_quality_report_surfaces_failed_visual_element_checks_as_next_actions():
             "present": True,
             "confidence": 0.35,
             "notes": "only weakly visible",
+        },
+        {
+            "kind": "style",
+            "item": "cinematic",
+            "present": True,
+            "confidence": 0.4,
+        },
+        {
+            "kind": "mood",
+            "item": "dramatic",
+            "present": False,
+            "confidence": 0.2,
         },
     ]

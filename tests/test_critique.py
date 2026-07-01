@@ -158,6 +158,28 @@ def test_apply_low_confidence_color_element_check_strengthens_style() -> None:
     assert any("element_check: strengthened checked color 'red'" in action for action in actions)
 
 
+def test_apply_low_confidence_style_and_mood_checks_adjust_style() -> None:
+    critique = parse_critique(
+        {
+            "element_checks": [
+                {"kind": "style", "item": "cinematic", "present": True, "confidence": 0.4},
+                {"kind": "mood", "item": "dramatic", "present": False, "confidence": 0.2},
+            ]
+        }
+    )
+
+    revised, actions = apply_critique_to_plan_dict(
+        {"style": {"contrast": 0.2, "bloom": 0.1, "vignette": 0.0}},
+        critique,
+    )
+
+    assert revised["style"]["contrast"] > 0.2
+    assert revised["style"]["bloom"] > 0.1
+    assert revised["style"]["vignette"] > 0.0
+    assert any("element_check: strengthened checked style 'cinematic'" in action for action in actions)
+    assert any("element_check: strengthened checked mood 'dramatic'" in action for action in actions)
+
+
 def test_unknown_action_is_skipped_not_fatal() -> None:
     critique = parse_critique({"edits": [{"action": "teleport_object", "type": "sun"}]})
     revised, actions = apply_critique_to_plan_dict({"objects": []}, critique)
@@ -196,6 +218,8 @@ def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None
         "quality_score": 0.44,
         "objects": ["sun", "ocean", "cloud"],
         "color_words": ["red", "blue"],
+        "style_words": ["cinematic"],
+        "mood_words": ["dramatic"],
         "caption_missing_objects": ["cloud"],
         "caption_missing_colors": ["red"],
         "revision_hints": ["Add missing clouds."],
@@ -254,6 +278,20 @@ def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None
             "question": "Is the requested color visually present and attached to the right subject: red?",
             "caption_backcheck": "missing",
             "priority": "high",
+        },
+        {
+            "kind": "style",
+            "item": "cinematic",
+            "question": "Does the image clearly convey the requested visual style: cinematic?",
+            "caption_backcheck": "unknown",
+            "priority": "normal",
+        },
+        {
+            "kind": "mood",
+            "item": "dramatic",
+            "question": "Does the image clearly convey the requested mood: dramatic?",
+            "caption_backcheck": "unknown",
+            "priority": "normal",
         },
     ]
     assert request["expected_response"]["closeness_score"] is None

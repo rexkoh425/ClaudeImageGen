@@ -288,6 +288,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "objects": list(spec.objects),
         "color_words": list(spec.color_words),
         "style_words": list(spec.style_words),
+        "mood_words": list(spec.mood_words),
         "reference_image": str(options.reference_image) if options.reference_image else None,
         "initial_image": str(options.initial_image) if options.initial_image else None,
         "reference_palette": _palette_to_hex(reference_palette),

@@ -19,16 +19,17 @@ VQAScore idea, run locally with no API. The canonical loop is:
    only on the numeric scores; actually look at the image.
 3. Read the generated `critique-request.json`, then write a `critique.json` response that
    fills its `expected_response` schema. Answer every VQAScore-style `visual_checklist`
-   object/color question in `element_checks`. Keep the response JSON-only and use only
-   actions listed in `allowed_edit_actions` unless you plan to rewrite `scene-plan.json`
-   manually.
+   object/color question plus style/mood checks in `element_checks`. Keep the response
+   JSON-only and use only actions listed in `allowed_edit_actions` unless you plan to
+   rewrite `scene-plan.json` manually.
 4. Run `refine --critique critique.json`. The critique's `edits` are applied to the scene
    plan automatically, the judgement is logged to `metadata.json` under `visual_critique`, it
    becomes a weighted `visual_judgement` check in `quality-report.json`, and its
    `missing`/`wrong`/`extra` plus failed checklist items become `Judge:` entries in
-   `next_actions`. Failed object/color checks also create conservative checklist-derived edits:
-   missing checked objects can add visible default objects or cloud banks, and weak checked colors
-   can increase saturation/contrast and append the matching palette color.
+   `next_actions`. Failed object/color checks and style/mood checks also create conservative
+   checklist-derived edits: missing checked objects can add visible default objects or cloud
+   banks, weak checked colors can increase saturation/contrast and append the matching palette
+   color, and weak style/mood checks can tune contrast, bloom, vignette, warmth, or saturation.
 5. On refine runs, read `comparison-request.json`, open the parent and child images side by side,
    and judge whether the child improved while preserving identity, layout, palette, and subject
    continuity. Use its `follow_up_edits` schema for the next `refine --critique` pass when the

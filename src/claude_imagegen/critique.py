@@ -462,6 +462,14 @@ def _apply_element_check_edits(plan: dict[str, Any], checks: tuple[dict[str, Any
             message = _apply_element_color_gap(plan, item)
             if message:
                 actions.append(f"element_check: {message}")
+        elif kind == "style":
+            message = _apply_element_style_gap(plan, item)
+            if message:
+                actions.append(f"element_check: {message}")
+        elif kind == "mood":
+            message = _apply_element_mood_gap(plan, item)
+            if message:
+                actions.append(f"element_check: {message}")
     return actions
 
 
@@ -483,18 +491,45 @@ def _apply_element_object_gap(plan: dict[str, Any], item: str) -> str:
 
 
 def _apply_element_color_gap(plan: dict[str, Any], item: str) -> str:
-    style = plan.get("style")
-    if not isinstance(style, dict):
-        style = {}
-        plan["style"] = style
-    style["saturation"] = _clamp01(_to_float(style.get("saturation", 0.35), 0.35) + 0.16)
-    style["contrast"] = _clamp01(_to_float(style.get("contrast", 0.35), 0.35) + 0.08)
-
+    _bump_style_values(plan, saturation=0.16, contrast=0.08)
     palette = _list_field(plan, "palette")
     color = _color_hex(item)
     if color not in palette:
         palette.append(color)
     return f"strengthened checked color '{item}'"
+
+
+def _apply_element_style_gap(plan: dict[str, Any], item: str) -> str:
+    if item == "noir":
+        _bump_style_values(plan, contrast=0.18, vignette=0.12)
+    elif item in {"dream", "dreamy", "watercolor"}:
+        _bump_style_values(plan, bloom=0.12, saturation=0.08, warmth=0.06)
+    elif item in {"ink", "sketch"}:
+        _bump_style_values(plan, contrast=0.14, saturation=0.04)
+    else:
+        _bump_style_values(plan, contrast=0.12, bloom=0.08, vignette=0.06)
+    return f"strengthened checked style '{item}'"
+
+
+def _apply_element_mood_gap(plan: dict[str, Any], item: str) -> str:
+    if item == "warm":
+        _bump_style_values(plan, warmth=0.16, saturation=0.06)
+    elif item in {"dark", "stormy"}:
+        _bump_style_values(plan, contrast=0.12, vignette=0.12)
+    elif item in {"soft", "calm", "quiet"}:
+        _bump_style_values(plan, bloom=0.08, warmth=0.06)
+    else:
+        _bump_style_values(plan, contrast=0.12, bloom=0.06, vignette=0.08)
+    return f"strengthened checked mood '{item}'"
+
+
+def _bump_style_values(plan: dict[str, Any], **increments: float) -> None:
+    style = plan.get("style")
+    if not isinstance(style, dict):
+        style = {}
+        plan["style"] = style
+    for key, increment in increments.items():
+        style[key] = _clamp01(_to_float(style.get(key, 0.0), 0.0) + increment)
 
 
 def _element_check_failed(check: dict[str, Any]) -> bool:
@@ -608,10 +643,32 @@ def _visual_checklist(metadata: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
+    for item in sorted(set(_str_list(metadata.get("style_words")))):
+        checklist.append(
+            {
+                "kind": "style",
+                "item": item,
+                "question": f"Does the image clearly convey the requested visual style: {item}?",
+                "caption_backcheck": "unknown",
+                "priority": "normal",
+            }
+        )
+
+    for item in sorted(set(_str_list(metadata.get("mood_words")))):
+        checklist.append(
+            {
+                "kind": "mood",
+                "item": item,
+                "question": f"Does the image clearly convey the requested mood: {item}?",
+                "caption_backcheck": "unknown",
+                "priority": "normal",
+            }
+        )
+
     return sorted(
         checklist,
         key=lambda check: (
-            0 if check["kind"] == "object" else 1,
+            {"object": 0, "color": 1, "style": 2, "mood": 3}.get(str(check["kind"]), 9),
             str(check["item"]),
         ),
     )
