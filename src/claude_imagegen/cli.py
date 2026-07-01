@@ -236,6 +236,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Device for optional model-backed verification.",
     )
+    verify.add_argument(
+        "--strong-size",
+        type=_parse_cli_size,
+        action="append",
+        dest="strong_sizes",
+        help="Output size for model-backed verification cases as WIDTHxHEIGHT. Repeat for multiple strong sizes.",
+    )
     verify.add_argument("--similarity-model", help="Optional similarity model id/path for --strong-model.")
     verify.add_argument(
         "--strong-continuity-backend",
@@ -378,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                 strong_model=args.strong_model,
                 strong_similarity_backend=args.strong_similarity_backend,
                 strong_model_device=args.strong_model_device,
+                strong_sizes=tuple(args.strong_sizes) if args.strong_sizes else None,
                 similarity_model=args.similarity_model,
                 strong_continuity_backend=args.strong_continuity_backend,
                 continuity_model=args.continuity_model,

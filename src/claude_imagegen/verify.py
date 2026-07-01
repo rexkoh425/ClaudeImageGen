@@ -44,6 +44,7 @@ class VerifyOptions:
     strong_model: bool = False
     strong_similarity_backend: str = "transformers-clip"
     strong_model_device: str = "auto"
+    strong_sizes: tuple[tuple[int, int], ...] | None = None
     similarity_model: str | None = None
     strong_continuity_backend: str = "local"
     continuity_model: str | None = None
@@ -131,6 +132,7 @@ def run_verification(options: VerifyOptions) -> dict[str, object]:
         "strong_model": strong_model_status,
         "strong_similarity_backend": options.strong_similarity_backend if options.strong_model else None,
         "strong_continuity_backend": options.strong_continuity_backend if options.strong_model else None,
+        "strong_sizes": [f"{width}x{height}" for width, height in _strong_verification_sizes(options)] if options.strong_model else None,
         "caption_similarity_backend": options.caption_similarity_backend if options.strong_model else None,
         "cases": cases,
     }
@@ -156,58 +158,23 @@ def parse_size(value: str) -> tuple[int, int]:
 
 
 def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list[dict[str, object]]) -> str:
-    width, height = options.sizes[0]
-    strong_dir = output_dir / f"strong-model-{width}x{height}"
-    try:
-        result = generate_image(
-            GenerateOptions(
-                prompt=options.prompt,
-                output_dir=strong_dir,
-                width=width,
-                height=height,
-                max_iterations=1,
-                threshold=0.1,
-                seed=911,
-                save_candidates=1,
-                similarity_backend=options.strong_similarity_backend,
-                similarity_model=options.similarity_model or _default_similarity_model(options.strong_similarity_backend),
-                similarity_device=options.strong_model_device,
-                caption_backend="transformers-blip",
-                caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
-                caption_device=options.strong_model_device,
-                caption_similarity_backend=options.caption_similarity_backend,
-                caption_similarity_model=options.caption_similarity_model,
-                caption_similarity_device=options.strong_model_device,
-            )
-        )
-    except Exception as exc:  # pragma: no cover - depends on optional local model installs
-        cases.append(
-            {
-                "type": "strong-model",
-                "status": "fail",
-                "size": f"{width}x{height}",
-                "output_dir": str(strong_dir),
-                "error": str(exc),
-            }
-        )
-        return "fail"
-
-    cases.append(_case_report("strong-model", result, requested_size=cap_dimensions(width, height)))
-    if options.strong_continuity_backend.strip().lower() != "local":
+    for index, (raw_width, raw_height) in enumerate(_strong_verification_sizes(options), start=1):
+        width, height = cap_dimensions(raw_width, raw_height)
+        strong_dir = output_dir / f"strong-model-{width}x{height}"
         try:
-            continuity_result = refine_image(
-                RefineOptions(
-                    from_dir=result.metadata_path.parent,
-                    prompt=options.refine_prompt,
-                    output_dir=output_dir / f"strong-continuity-{width}x{height}",
+            result = generate_image(
+                GenerateOptions(
+                    prompt=options.prompt,
+                    output_dir=strong_dir,
+                    width=raw_width,
+                    height=raw_height,
                     max_iterations=1,
                     threshold=0.1,
+                    seed=911 + index,
+                    save_candidates=1,
                     similarity_backend=options.strong_similarity_backend,
                     similarity_model=options.similarity_model or _default_similarity_model(options.strong_similarity_backend),
                     similarity_device=options.strong_model_device,
-                    continuity_backend=options.strong_continuity_backend,
-                    continuity_model=options.continuity_model or _default_continuity_model(options.strong_continuity_backend),
-                    continuity_device=options.strong_model_device,
                     caption_backend="transformers-blip",
                     caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
                     caption_device=options.strong_model_device,
@@ -219,16 +186,56 @@ def _run_strong_model_case(options: VerifyOptions, output_dir: Path, cases: list
         except Exception as exc:  # pragma: no cover - depends on optional local model installs
             cases.append(
                 {
-                    "type": "strong-continuity",
+                    "type": "strong-model",
                     "status": "fail",
                     "size": f"{width}x{height}",
-                    "output_dir": str(output_dir / f"strong-continuity-{width}x{height}"),
+                    "output_dir": str(strong_dir),
                     "error": str(exc),
                 }
             )
             return "fail"
-        cases.append(_case_report("strong-continuity", continuity_result, requested_size=cap_dimensions(width, height)))
+
+        cases.append(_case_report("strong-model", result, requested_size=(width, height)))
+        if options.strong_continuity_backend.strip().lower() != "local":
+            try:
+                continuity_result = refine_image(
+                    RefineOptions(
+                        from_dir=result.metadata_path.parent,
+                        prompt=options.refine_prompt,
+                        output_dir=output_dir / f"strong-continuity-{width}x{height}",
+                        max_iterations=1,
+                        threshold=0.1,
+                        similarity_backend=options.strong_similarity_backend,
+                        similarity_model=options.similarity_model or _default_similarity_model(options.strong_similarity_backend),
+                        similarity_device=options.strong_model_device,
+                        continuity_backend=options.strong_continuity_backend,
+                        continuity_model=options.continuity_model or _default_continuity_model(options.strong_continuity_backend),
+                        continuity_device=options.strong_model_device,
+                        caption_backend="transformers-blip",
+                        caption_model=options.caption_model or DEFAULT_BLIP_MODEL,
+                        caption_device=options.strong_model_device,
+                        caption_similarity_backend=options.caption_similarity_backend,
+                        caption_similarity_model=options.caption_similarity_model,
+                        caption_similarity_device=options.strong_model_device,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - depends on optional local model installs
+                cases.append(
+                    {
+                        "type": "strong-continuity",
+                        "status": "fail",
+                        "size": f"{width}x{height}",
+                        "output_dir": str(output_dir / f"strong-continuity-{width}x{height}"),
+                        "error": str(exc),
+                    }
+                )
+                return "fail"
+            cases.append(_case_report("strong-continuity", continuity_result, requested_size=(width, height)))
     return "pass"
+
+
+def _strong_verification_sizes(options: VerifyOptions) -> tuple[tuple[int, int], ...]:
+    return options.strong_sizes or (options.sizes[0],)
 
 
 def _run_complex_plan_case(options: VerifyOptions, output_dir: Path, *, width: int, height: int) -> GenerateResult:

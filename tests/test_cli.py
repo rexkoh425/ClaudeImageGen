@@ -4,9 +4,11 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
+from claude_imagegen import verify as verify_module
 from claude_imagegen.cli import build_parser
 
 
@@ -84,6 +86,10 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "transformers-sentence",
             "--caption-similarity-model",
             "sentence-transformers/all-MiniLM-L6-v2",
+            "--strong-size",
+            "96x64",
+            "--strong-size",
+            "144x96",
         ]
     )
     assert verify_args.strong_similarity_backend == "transformers-siglip"
@@ -92,6 +98,7 @@ def test_cli_accepts_siglip_similarity_backend_options():
     assert verify_args.continuity_model == "facebook/dinov2-base"
     assert verify_args.caption_similarity_backend == "transformers-sentence"
     assert verify_args.caption_similarity_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert verify_args.strong_sizes == [(96, 64), (144, 96)]
 
 
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):
@@ -709,3 +716,112 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
             assert metadata["parent_candidate_selection"] == "auto"
             assert metadata["initial_similarity_score"] is not None
             assert case["refinement_delta"] == metadata["refinement_delta"]
+
+
+def test_verification_runs_strong_cases_for_explicit_strong_sizes(tmp_path: Path, monkeypatch):
+    def fake_result(output_dir: Path, *, width: int, height: int, options: object, refined: bool = False):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        image = Image.new("RGB", (width, height), (32, 64, 128))
+        image_path = output_dir / "image.png"
+        metadata_path = output_dir / "metadata.json"
+        progress_path = output_dir / "progress.csv"
+        quality_path = output_dir / "quality-report.json"
+        critique_path = output_dir / "critique-request.json"
+        image.save(image_path)
+        progress_path.write_text("iteration,total_score\n1,0.5\n", encoding="utf-8")
+        quality_path.write_text("{}", encoding="utf-8")
+        critique_path.write_text("{}", encoding="utf-8")
+
+        similarity_backend = getattr(options, "similarity_backend", "local")
+        continuity_backend = getattr(options, "continuity_backend", None) or similarity_backend
+        caption_backend = getattr(options, "caption_backend", "local")
+        caption_similarity_backend = getattr(options, "caption_similarity_backend", "local")
+        effective_device = "cuda" if similarity_backend != "local" else "cpu"
+        metadata = {
+            "width": width,
+            "height": height,
+            "quality_report": str(quality_path),
+            "quality_status": "review",
+            "quality_score": 0.5,
+            "total_score": 0.5,
+            "caption_backend": caption_backend,
+            "caption_model": getattr(options, "caption_model", None),
+            "caption_similarity_score": 0.7,
+            "caption_similarity_backend": caption_similarity_backend,
+            "caption_similarity_model": getattr(options, "caption_similarity_model", None),
+            "effective_caption_similarity_device": effective_device,
+            "initial_similarity_score": 0.91 if refined else None,
+            "refinement_delta": {"total_score_delta": 0.02} if refined else None,
+            "similarity_backend": similarity_backend,
+            "similarity_model": getattr(options, "similarity_model", None),
+            "continuity_backend": continuity_backend,
+            "continuity_model": getattr(options, "continuity_model", None),
+            "effective_similarity_device": effective_device,
+            "effective_continuity_device": effective_device,
+            "effective_caption_device": effective_device if caption_backend != "local" else "cpu",
+            "parent_candidate_selection": "auto" if getattr(options, "candidate_rank", None) == "auto" else None,
+            "candidate_count": 0,
+            "scene_plan_used": output_dir.name.startswith("complex-plan"),
+            "scene_plan_background_stop_count": 1,
+            "scene_plan_element_count": 1,
+            "scene_plan_gradient_count": 1,
+            "scene_plan_motif_count": 1,
+            "scene_plan_texture_count": 1,
+            "scene_plan_material_count": 1,
+            "scene_plan_terrain_count": 1,
+            "scene_plan_reflection_count": 1,
+            "scene_plan_warp_count": 1,
+            "scene_plan_veil_count": 1,
+            "scene_plan_light_count": 1,
+            "scene_plan_beam_count": 1,
+            "scene_plan_cloud_count": 1,
+            "scene_plan_shadow_count": 1,
+            "scene_plan_atmosphere_used": True,
+            "scene_plan_focus_used": True,
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        return SimpleNamespace(
+            image=image,
+            metadata=metadata,
+            image_path=image_path,
+            metadata_path=metadata_path,
+            progress_path=progress_path,
+            pixels_path=None,
+            candidates_path=None,
+        )
+
+    def fake_generate(options):
+        return fake_result(options.output_dir, width=options.width, height=options.height, options=options)
+
+    def fake_refine(options):
+        parent_metadata = json.loads((options.from_dir / "metadata.json").read_text(encoding="utf-8"))
+        width = options.width or int(parent_metadata["width"])
+        height = options.height or int(parent_metadata["height"])
+        return fake_result(options.output_dir, width=width, height=height, options=options, refined=True)
+
+    monkeypatch.setattr(verify_module, "generate_image", fake_generate)
+    monkeypatch.setattr(verify_module, "refine_image", fake_refine)
+
+    report = verify_module.run_verification(
+        verify_module.VerifyOptions(
+            output_dir=tmp_path / "verify-strong-sizes",
+            sizes=((80, 48),),
+            max_iterations=1,
+            threshold=0.1,
+            save_candidates=1,
+            strong_model=True,
+            strong_similarity_backend="transformers-siglip",
+            strong_continuity_backend="transformers-dinov2",
+            caption_similarity_backend="transformers-sentence",
+            strong_sizes=((96, 64), (144, 96)),
+        )
+    )
+
+    assert report["status"] == "pass"
+    assert report["strong_model"] == "pass"
+    assert report["strong_sizes"] == ["96x64", "144x96"]
+    assert [case["size"] for case in report["cases"] if case["type"] == "strong-model"] == ["96x64", "144x96"]
+    assert [case["size"] for case in report["cases"] if case["type"] == "strong-continuity"] == ["96x64", "144x96"]
+    strong_cases = [case for case in report["cases"] if case["type"].startswith("strong")]
+    assert all(case["similarity_backend"] == "transformers-siglip" for case in strong_cases)
+    assert all(case["effective_similarity_device"] == "cuda" for case in strong_cases)
