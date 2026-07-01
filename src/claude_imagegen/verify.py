@@ -251,6 +251,8 @@ def _case_report(case_type: str, result: GenerateResult, *, requested_size: tupl
         "quality_status": metadata.get("quality_status"),
         "quality_score": metadata.get("quality_score"),
         "total_score": metadata.get("total_score"),
+        "caption_backend": metadata.get("caption_backend"),
+        "caption_model": metadata.get("caption_model"),
         "caption_similarity_score": metadata.get("caption_similarity_score"),
         "caption_similarity_backend": metadata.get("caption_similarity_backend"),
         "caption_similarity_model": metadata.get("caption_similarity_model"),

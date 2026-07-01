@@ -649,12 +649,13 @@ def test_cli_verify_runs_size_and_refine_smoke_suite(tmp_path: Path):
         assert (case_dir / "image.png").exists()
         assert (case_dir / "metadata.json").exists()
         assert (case_dir / "quality-report.json").exists()
+        metadata = json.loads((case_dir / "metadata.json").read_text(encoding="utf-8"))
+        assert case["caption_backend"] == metadata["caption_backend"]
+        assert case["caption_model"] == metadata["caption_model"]
         if case["type"] == "generate":
-            metadata = json.loads((case_dir / "metadata.json").read_text(encoding="utf-8"))
             assert f"{metadata['width']}x{metadata['height']}" == case["size"]
             assert (case_dir / "candidates.json").exists()
             assert (case_dir / "candidates" / "contact-sheet.png").exists()
         if case["type"] == "refine":
-            metadata = json.loads((case_dir / "metadata.json").read_text(encoding="utf-8"))
             assert metadata["parent_candidate_selection"] == "auto"
             assert metadata["initial_similarity_score"] is not None
