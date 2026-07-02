@@ -86,6 +86,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
     initial_palette = _palette_from_optional_image(options.initial_image)
     spec = parse_prompt(options.prompt)
     scene_plan = parse_scene_plan(options.scene_plan) if options.scene_plan else None
+    _validate_prompt_scene_plan_semantics(options, spec=spec, scene_plan=scene_plan)
     candidate = build_initial_candidate(
         spec,
         seed=options.seed,
@@ -351,6 +352,57 @@ def _palette_to_hex(palette: tuple[RGB, ...] | None) -> list[str]:
     if not palette:
         return []
     return [f"#{red:02x}{green:02x}{blue:02x}" for red, green, blue in palette]
+
+
+def _validate_prompt_scene_plan_semantics(options: GenerateOptions, *, spec: object, scene_plan: ScenePlan | None) -> None:
+    if scene_plan is None:
+        return
+
+    prompt_tokens = set(getattr(spec, "tokens", ()))
+    if len(prompt_tokens) >= 3:
+        return
+
+    plan_tokens = _scene_plan_semantic_tokens(scene_plan)
+    missing_semantic_terms = sorted(plan_tokens - prompt_tokens)
+    if len(missing_semantic_terms) < 2:
+        return
+
+    preview = ", ".join(missing_semantic_terms[:8])
+    raise ValueError(
+        "prompt is too short for the supplied scene plan at a high quality target; "
+        "pass the full user prompt to --prompt so scoring, caption backchecks, and "
+        f"quality gates evaluate the intended image. Detected scene-plan terms include: {preview}."
+    )
+
+
+def _scene_plan_semantic_tokens(scene_plan: ScenePlan) -> set[str]:
+    semantic_text: list[str] = [scene_plan.title]
+    semantic_text.extend(obj.kind for obj in scene_plan.objects)
+    semantic_text.extend(obj.label for obj in scene_plan.objects)
+    for element in scene_plan.elements:
+        semantic_text.append(element.kind)
+        semantic_text.append(element.label)
+        text = element.extra.get("text")
+        if isinstance(text, str):
+            semantic_text.append(text)
+
+    tokens = set(parse_prompt(" ".join(semantic_text)).tokens)
+    return {
+        token
+        for token in tokens
+        if len(token) > 2
+        and token
+        not in {
+            "the",
+            "and",
+            "for",
+            "with",
+            "premium",
+            "local",
+            "final",
+            "image",
+        }
+    }
 
 
 def _blend_initial_image(image: Image.Image, initial_image: Path | None) -> Image.Image:

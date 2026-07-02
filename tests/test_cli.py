@@ -758,6 +758,113 @@ def test_cli_generate_accepts_scene_plan_file(tmp_path: Path):
     assert metadata["scene_plan_title"] == "CLI planned scene"
 
 
+def test_cli_generate_rejects_terse_prompt_for_semantic_scene_plan_at_high_quality(tmp_path: Path):
+    output_dir = tmp_path / "planned"
+    plan_path = tmp_path / "scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Premium Architecture Diagram",
+                "palette": ["#0b1220", "#3b82f6", "#f5c451"],
+                "background": {"top": "#0a0f1c", "bottom": "#0e1830"},
+                "objects": [],
+                "elements": [
+                    {"type": "rounded_rectangle", "label": "api gateway", "x": 0.4, "y": 0.5, "width": 0.2, "height": 0.12},
+                    {"type": "text", "text": "API Gateway", "x": 0.4, "y": 0.5, "fill": "#ffffff"},
+                    {"type": "arrow", "label": "service flow", "points": [[0.52, 0.5], [0.72, 0.5]], "stroke": "#3b82f6"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "generate",
+            "--prompt",
+            "premium",
+            "--scene-plan",
+            str(plan_path),
+            "--output-dir",
+            str(output_dir),
+            "--width",
+            "120",
+            "--height",
+            "80",
+            "--quality-target",
+            "0.9",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+    assert completed.returncode != 0
+    assert "full user prompt" in completed.stderr
+    assert "architecture" in completed.stderr
+    assert "diagram" in completed.stderr
+    assert not (output_dir / "image.png").exists()
+
+
+def test_cli_generate_rejects_terse_prompt_for_semantic_scene_plan_without_quality_target(tmp_path: Path):
+    output_dir = tmp_path / "planned"
+    plan_path = tmp_path / "scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Premium Architecture Diagram",
+                "palette": ["#0b1220", "#3b82f6", "#f5c451"],
+                "background": {"top": "#0a0f1c", "bottom": "#0e1830"},
+                "elements": [
+                    {"type": "rounded_rectangle", "label": "gpu diffusion stage", "x": 0.5, "y": 0.45, "width": 0.24, "height": 0.12},
+                    {"type": "text", "text": "GPU Diffusion", "x": 0.5, "y": 0.45, "fill": "#ffffff"},
+                    {"type": "arrow", "label": "quality gate flow", "points": [[0.64, 0.45], [0.82, 0.45]], "stroke": "#f5c451"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "claude_imagegen.cli",
+            "generate",
+            "--prompt",
+            "premium",
+            "--scene-plan",
+            str(plan_path),
+            "--output-dir",
+            str(output_dir),
+            "--width",
+            "120",
+            "--height",
+            "80",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+    assert completed.returncode != 0
+    assert "full user prompt" in completed.stderr
+    assert "diffusion" in completed.stderr
+    assert "quality" in completed.stderr
+    assert not (output_dir / "image.png").exists()
+
+
 def test_cli_refine_uses_previous_output_as_initial_image(tmp_path: Path):
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()

@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.14"
+EXPECTED_VERSION = "0.1.15"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -128,6 +128,8 @@ def test_claude_skill_and_executable_are_present():
     assert "avoid label overlap" in skill_text
     assert "inset badges" in skill_text
     assert "separate image tiles and labels" in skill_text
+    assert "Do not shorten the user's prompt" in skill_text
+    assert "Do not drop `--quality-target 0.9`" in skill_text
     assert "GPT/Sora parity" in skill_text
     assert '"greenhouse"' in skill_text
     assert '"plant"' in skill_text
