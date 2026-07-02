@@ -8,7 +8,7 @@ The default renderer is CPU-first and lightweight. For stronger photoreal detail
 
 Claude ImageGen is available through the Claude Code plugin marketplace from this GitHub repo.
 
-On another machine, install Claude Code, sign in to GitHub if this repo is private, then run this inside Claude Code:
+Fastest setup: on this machine or On another machine, install Claude Code, sign in to GitHub if this repo is private, then run this inside Claude Code:
 
 ```text
 /plugin marketplace add rexkoh425/ClaudeImageGen
@@ -17,9 +17,11 @@ On another machine, install Claude Code, sign in to GitHub if this repo is priva
 
 Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. To update after a new release, run the same install command again and restart.
 
+After restart, ask Claude Code: `Use the generate-image skill to create <your prompt> with multi-refinement and a 0.9 gate`. Claude does the planning and critique; your machine does the CPU/GPU rendering.
+
 ## Local Setup
 
-From a clone of this repo:
+Fastest local setup from a clone of this repo:
 
 ```bash
 python -m pip install -e .
@@ -35,13 +37,13 @@ claude-imagegen setup --with-diffusion
 
 `setup` reports missing Python packages, optional Diffusers/Torch packages, and CUDA visibility.
 
-## Best CPU Workflow
+## Best Result Loop
 
 For simple images: `claude-imagegen generate --prompt "cinematic red sun over a blue ocean with misty mountains" --output-dir claude-imagegen-output/demo --width 720 --height 480 --quality-target 0.9 --save-candidates 4`
 
-For better CPU results, ask Claude Code to use the `generate-image` skill for a multi-refinement loop. Claude writes `scene-plan.json`, renders `image.png`, inspects `critique-request.json`, writes visual feedback, then reruns `refine`.
+For better CPU results, ask Claude Code to use the `generate-image` skill for a multi-refinement loop. Claude writes `scene-plan.json`, renders `image.png`, inspects `critique-request.json`, writes visual feedback, then reruns `refine` for 2-4 rounds when the image is close but not detailed enough.
 
-The scene plan now supports diagram and icon primitives: `text`, `arrow`, `rounded_rectangle`, `aperture`, `sparkle`, and explicit `stroke_width`. Use these for architecture diagrams, app icons, labels, connectors, and crisp vector-style shapes.
+The scene plan supports diagram and icon primitives: `text`, `arrow`, `rounded_rectangle`, `aperture`, `sparkle`, and explicit `stroke_width`. Use these for architecture diagrams, app icons, labels, connectors, and crisp vector-style shapes. For diagrams, keep labels inside boxes, keep badges inset, and give image tiles their own label space.
 
 ## Higher-Detail GPU Image
 

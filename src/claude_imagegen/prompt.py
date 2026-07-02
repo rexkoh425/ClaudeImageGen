@@ -37,10 +37,10 @@ COLOR_WORDS = {
 }
 
 OBJECT_ALIASES = {
-    "abstract": {"abstract", "pattern", "geometric", "poster"},
+    "abstract": {"abstract", "architecture", "diagram", "geometric", "pattern", "pipeline", "poster"},
     "building": {"building", "buildings", "city", "cityscape", "skyline", "tower", "towers"},
     "cloud": {"cloud", "clouds"},
-    "floor": {"floor", "floors", "stone", "stones", "tile", "tiles", "wet"},
+    "floor": {"floor", "floors", "stone", "stones", "tiles", "wet"},
     "flower": {"flower", "flowers", "botanical", "garden", "petal", "petals"},
     "forest": {"forest", "woods", "jungle", "trees", "tree"},
     "greenhouse": {"greenhouse", "glasshouse", "conservatory", "atrium", "glass", "glazing"},

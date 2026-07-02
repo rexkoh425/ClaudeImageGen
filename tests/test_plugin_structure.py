@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.13"
+EXPECTED_VERSION = "0.1.14"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -125,6 +125,9 @@ def test_claude_skill_and_executable_are_present():
     assert "nonblank" in skill_text
     assert "--quality-target 0.9" in skill_text
     assert "multi-refinement" in skill_text
+    assert "avoid label overlap" in skill_text
+    assert "inset badges" in skill_text
+    assert "separate image tiles and labels" in skill_text
     assert "GPT/Sora parity" in skill_text
     assert '"greenhouse"' in skill_text
     assert '"plant"' in skill_text
@@ -152,6 +155,9 @@ def test_readme_documents_claude_plugin_install_flow():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert len(readme.splitlines()) <= 170
+    assert "Fastest setup" in readme
+    assert "Best Result Loop" in readme
+    assert "Claude does the planning and critique" in readme
     assert "Claude ImageGen is available through the Claude Code plugin marketplace" in readme
     assert "On another machine" in readme
     assert "sign in to GitHub if this repo is private" in readme

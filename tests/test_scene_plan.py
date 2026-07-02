@@ -856,6 +856,41 @@ def test_scene_plan_text_elements_render_labels_for_diagrams(tmp_path: Path):
     assert changed > 20
 
 
+def test_scene_plan_text_elements_accept_color_alias_for_diagram_labels(tmp_path: Path):
+    plan_path = tmp_path / "text-color-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude labeled diagram with color alias",
+                "palette": ["#ffffff", "#102040"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "text",
+                        "text": "CPU",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "size": 0.18,
+                        "color": "#102040",
+                        "opacity": 1.0,
+                        "z": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = parse_scene_plan(plan_path)
+    image = render_scene_plan(plan, width=140, height=90)
+    label_region = image.crop((48, 30, 92, 60))
+    changed = sum(1 for pixel in label_region.getdata() if pixel != (255, 255, 255))
+
+    assert plan.elements[0].fill == (16, 32, 64)
+    assert changed > 20
+
+
 def test_scene_plan_arrow_elements_render_directional_connectors(tmp_path: Path):
     plan_path = tmp_path / "arrow-scene-plan.json"
     plan_path.write_text(

@@ -32,3 +32,13 @@ def test_parse_prompt_recognizes_greenhouse_scene_objects():
     assert "lamp" in spec.objects
     assert "moon" not in spec.objects
     assert "cloud" not in spec.objects
+
+
+def test_parse_prompt_does_not_treat_diagram_image_tile_as_floor():
+    spec = parse_prompt(
+        "clean architecture diagram for a local pipeline with rounded boxes, "
+        "readable labels, arrows, CPU and GPU badges, and a final image tile"
+    )
+
+    assert "abstract" in spec.objects
+    assert "floor" not in spec.objects

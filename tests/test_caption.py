@@ -205,3 +205,87 @@ def test_local_caption_backcheck_names_icon_scene_without_greenhouse_bias(tmp_pa
     assert "teal" not in diagnostics.missing_colors
     assert diagnostics.unexpected_objects == ()
     assert result.prompt_similarity_score > 0.32
+
+
+def test_local_caption_backcheck_names_architecture_diagram_without_greenhouse_bias(tmp_path: Path):
+    prompt = (
+        "clean architecture diagram for Claude ImageGen local pipeline, dark navy canvas, "
+        "crisp rounded boxes, readable labels, arrows, CPU and GPU badges, and a final image tile"
+    )
+    plan_path = tmp_path / "architecture-diagram-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "captionable architecture diagram",
+                "palette": ["#07122b", "#1f4fc4", "#f5b642", "#e6edf7"],
+                "background": {"top": "#07122b", "bottom": "#102860"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "rounded_rectangle",
+                        "x": 0.25,
+                        "y": 0.35,
+                        "width": 0.26,
+                        "height": 0.18,
+                        "fill": "#123080",
+                        "stroke": "#36d7ff",
+                        "stroke_width": 0.01,
+                        "radius": 0.04,
+                    },
+                    {
+                        "type": "text",
+                        "text": "CPU",
+                        "x": 0.25,
+                        "y": 0.35,
+                        "size": 0.10,
+                        "color": "#e6edf7",
+                        "z": 2,
+                    },
+                    {
+                        "type": "rounded_rectangle",
+                        "x": 0.67,
+                        "y": 0.35,
+                        "width": 0.26,
+                        "height": 0.18,
+                        "fill": "#123080",
+                        "stroke": "#f5b642",
+                        "stroke_width": 0.01,
+                        "radius": 0.04,
+                    },
+                    {
+                        "type": "text",
+                        "text": "GPU",
+                        "x": 0.67,
+                        "y": 0.35,
+                        "size": 0.10,
+                        "color": "#e6edf7",
+                        "z": 2,
+                    },
+                    {
+                        "type": "arrow",
+                        "points": [[0.38, 0.35], [0.54, 0.35]],
+                        "stroke": "#f5b642",
+                        "width": 0.02,
+                        "z": 3,
+                    },
+                ],
+                "style": {"antialias": 1.0, "detail": 0.45, "sharpen": 0.35},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    image = render_scene_plan(parse_scene_plan(plan_path), width=220, height=140, seed=3)
+    result = caption_image(image, prompt=prompt, backend="local", device="cpu")
+    diagnostics = caption_prompt_diagnostics(prompt, result.caption)
+
+    assert "architecture diagram" in result.caption
+    assert "rounded boxes" in result.caption
+    assert "arrows" in result.caption
+    assert "greenhouse" not in result.caption
+    assert "ocean" not in result.caption
+    assert "floor" not in result.caption
+    assert "abstract" not in diagnostics.missing_objects
+    assert "blue" not in diagnostics.missing_colors
+    assert "gold" not in diagnostics.missing_colors
+    assert result.prompt_similarity_score > 0.32

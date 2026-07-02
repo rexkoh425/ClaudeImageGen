@@ -194,7 +194,11 @@ def _local_caption(image: Image.Image, *, prompt: str = "") -> str:
         int(width * 0.25) : max(int(width * 0.25) + 1, int(width * 0.75)),
     ]
 
-    prompt_tokens = set(parse_prompt(prompt).tokens)
+    prompt_spec = parse_prompt(prompt)
+    prompt_tokens = set(prompt_spec.tokens)
+    prompt_colors = set(prompt_spec.color_words)
+    if _prompt_requests_diagram(prompt_tokens) and _diagram_presence(array, center) >= 0.34:
+        return "a local image showing " + _join_phrases(_local_diagram_phrases(array, center, prompt_tokens, prompt_colors))
     if _prompt_requests_icon(prompt_tokens) and _icon_presence(array, center) >= 0.42:
         return "a local image showing " + _join_phrases(_local_icon_phrases(array, upper, center, prompt_tokens))
 
@@ -248,6 +252,42 @@ def _local_caption(image: Image.Image, *, prompt: str = "") -> str:
 
 def _prompt_requests_icon(tokens: set[str]) -> bool:
     return "icon" in tokens or ("app" in tokens and ("logo" in tokens or "badge" in tokens))
+
+
+def _prompt_requests_diagram(tokens: set[str]) -> bool:
+    return bool({"architecture", "diagram", "pipeline", "flowchart"} & tokens)
+
+
+def _local_diagram_phrases(
+    array: np.ndarray,
+    center: np.ndarray,
+    prompt_tokens: set[str],
+    prompt_colors: set[str],
+) -> list[str]:
+    colors: list[str] = []
+    if "blue" in prompt_colors and _blue_presence(array) >= 0.005:
+        colors.append("blue")
+    if "gold" in prompt_colors and _warm_presence(array) >= 0.001:
+        colors.append("gold")
+    color_prefix = " and ".join(colors) if colors else _dominant_color_name(array)
+
+    phrases = [f"{color_prefix} architecture diagram"]
+    if {"box", "boxes", "rounded"} & prompt_tokens:
+        phrases.append("rounded boxes")
+    if {"label", "labels", "readable"} & prompt_tokens and _edge_density(center) >= 0.04:
+        phrases.append("readable labels")
+    if {"arrow", "arrows", "flow", "flows"} & prompt_tokens:
+        phrases.append("arrows")
+    if {"cpu", "gpu"} & prompt_tokens:
+        phrases.append("CPU and GPU badges")
+    return _dedupe(phrases)
+
+
+def _diagram_presence(array: np.ndarray, center: np.ndarray) -> float:
+    cool_canvas = max(_blue_presence(array), _dark_presence(array) * 0.65)
+    crisp_geometry = _edge_density(center)
+    contrast = float(array.mean(axis=2).std()) / 72.0
+    return _clamp01(0.40 * cool_canvas + 0.38 * crisp_geometry + 0.22 * contrast)
 
 
 def _local_icon_phrases(
