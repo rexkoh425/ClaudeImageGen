@@ -195,6 +195,31 @@ def test_setup_command_prints_diffusion_and_cuda_next_steps(monkeypatch, capsys)
     assert 'Next diffusion setup: python -m pip install -e ".[diffusion]"' in captured.out
 
 
+def test_setup_command_prints_cpu_next_step_when_base_dependencies_are_missing(monkeypatch, capsys):
+    from claude_imagegen import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module,
+        "_setup_status",
+        lambda *, include_diffusion: {
+            "ready": False,
+            "python_version": "3.12.0",
+            "python_executable": "python",
+            "dependencies": [
+                {"name": "numpy", "available": False},
+                {"name": "Pillow", "available": True},
+            ],
+        },
+    )
+
+    exit_code = cli_module.main(["setup"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "claude-imagegen setup incomplete" in captured.out
+    assert "Next CPU setup: python -m pip install -e ." in captured.out
+
+
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):
     output_dir = tmp_path / "generated"
     root = Path(__file__).resolve().parents[1]

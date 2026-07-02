@@ -296,7 +296,7 @@ def _local_icon_phrases(
     center: np.ndarray,
     prompt_tokens: set[str],
 ) -> list[str]:
-    phrases = ["teal abstract app icon" if "teal" in prompt_tokens else f"{_dominant_color_name(array)} abstract app icon"]
+    phrases = ["teal app icon" if "teal" in prompt_tokens else f"{_dominant_color_name(array)} app icon"]
     if {"aperture", "lens", "camera"} & prompt_tokens and _edge_density(center) >= 0.06:
         phrases.append("camera aperture lens")
     if "sparkle" in prompt_tokens and _bright_neutral_presence(upper) >= 0.025:

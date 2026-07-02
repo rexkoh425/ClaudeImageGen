@@ -295,6 +295,160 @@ def test_scene_plan_generation_auto_refines_missing_prompt_objects(tmp_path: Pat
     assert result.metadata["scene_plan_cloud_count"] >= 1
 
 
+def test_scene_plan_refinement_treats_diagram_primitives_as_prompt_evidence(tmp_path: Path):
+    plan_path = tmp_path / "diagram-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "reference architecture diagram",
+                "palette": ["#07122b", "#1f4fc4", "#f5b642", "#e6edf7"],
+                "background": {"top": "#07122b", "bottom": "#102860"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "rounded_rectangle",
+                        "label": "cpu service tile",
+                        "x": 0.24,
+                        "y": 0.36,
+                        "width": 0.25,
+                        "height": 0.16,
+                        "fill": "#123080",
+                        "stroke": "#36d7ff",
+                        "stroke_width": 0.012,
+                    },
+                    {
+                        "type": "text",
+                        "text": "CPU",
+                        "x": 0.24,
+                        "y": 0.36,
+                        "size": 0.08,
+                        "color": "#e6edf7",
+                    },
+                    {
+                        "type": "rounded_rectangle",
+                        "label": "gpu service tile",
+                        "x": 0.66,
+                        "y": 0.36,
+                        "width": 0.25,
+                        "height": 0.16,
+                        "fill": "#123080",
+                        "stroke": "#f5b642",
+                        "stroke_width": 0.012,
+                    },
+                    {
+                        "type": "text",
+                        "text": "GPU",
+                        "x": 0.66,
+                        "y": 0.36,
+                        "size": 0.08,
+                        "color": "#e6edf7",
+                    },
+                    {
+                        "type": "arrow",
+                        "label": "compute route",
+                        "points": [[0.38, 0.36], [0.52, 0.36]],
+                        "stroke": "#f5b642",
+                        "width": 0.018,
+                    },
+                ],
+                "style": {"antialias": 1.0, "detail": 0.5, "sharpen": 0.45},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = generate_image(
+        GenerateOptions(
+            prompt=(
+                "premium reference architecture diagram with rounded-rectangle service tiles, "
+                "gold and blue arrows, CPU and GPU badges, and a final image tile"
+            ),
+            output_dir=tmp_path / "out",
+            scene_plan=plan_path,
+            width=240,
+            height=150,
+            max_iterations=2,
+            threshold=0.99,
+            auto_refine=True,
+            caption_backend="none",
+        )
+    )
+
+    actions = " ".join(result.metadata["refinement_actions"])
+
+    assert "floor" not in result.metadata["objects"]
+    assert "floor" not in actions
+    assert "abstract" not in actions
+    assert "added missing object 'diagram'" not in actions
+
+
+def test_scene_plan_refinement_adds_nonsemantic_detail_for_flat_diagrams(tmp_path: Path):
+    plan_path = tmp_path / "flat-diagram-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "flat architecture diagram",
+                "palette": ["#07122b", "#1f4fc4", "#f5b642", "#e6edf7"],
+                "background": {"top": "#07122b", "bottom": "#102860"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "rounded_rectangle",
+                        "label": "source service tile",
+                        "x": 0.28,
+                        "y": 0.42,
+                        "width": 0.30,
+                        "height": 0.18,
+                        "fill": "#123080",
+                        "stroke": "#36d7ff",
+                        "stroke_width": 0.01,
+                    },
+                    {
+                        "type": "rounded_rectangle",
+                        "label": "target service tile",
+                        "x": 0.70,
+                        "y": 0.42,
+                        "width": 0.30,
+                        "height": 0.18,
+                        "fill": "#123080",
+                        "stroke": "#f5b642",
+                        "stroke_width": 0.01,
+                    },
+                    {
+                        "type": "arrow",
+                        "label": "diagram route",
+                        "points": [[0.43, 0.42], [0.55, 0.42]],
+                        "stroke": "#f5b642",
+                        "width": 0.015,
+                    },
+                ],
+                "style": {"antialias": 1.0, "detail": 0.05, "sharpen": 0.05},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = generate_image(
+        GenerateOptions(
+            prompt="flat architecture diagram with rounded service tiles and gold arrows",
+            output_dir=tmp_path / "out",
+            scene_plan=plan_path,
+            width=240,
+            height=150,
+            max_iterations=2,
+            threshold=0.99,
+            auto_refine=True,
+            caption_backend="none",
+        )
+    )
+
+    actions = " ".join(result.metadata["refinement_actions"])
+
+    assert "added diagram detail texture" in actions
+    assert "floor" not in actions
+    assert "abstract" not in actions
+
+
 def test_generate_metadata_records_similarity_backend(tmp_path: Path):
     result = generate_image(
         GenerateOptions(

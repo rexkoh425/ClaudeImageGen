@@ -698,6 +698,8 @@ def main(argv: list[str] | None = None) -> int:
             state = "ok" if dependency["available"] else "missing"
             print(f"{dependency['name']} {state}")
         print("First run bootstrap creates a plugin-owned virtual environment when numpy or Pillow are missing.")
+        if not status["ready"]:
+            print("Next CPU setup: python -m pip install -e .")
         if args.with_diffusion:
             print("Diffusion optional ready" if status["diffusion_ready"] else "Diffusion optional incomplete")
             for dependency in status["diffusion_dependencies"]:

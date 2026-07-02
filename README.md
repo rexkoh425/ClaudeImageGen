@@ -1,14 +1,12 @@
 # Claude ImageGen
 
-Claude ImageGen is a Claude Code plugin for making local PNG images from Claude-authored scene plans.
-
-The default renderer is CPU-first and lightweight. For stronger photoreal detail, install the optional Diffusers/Torch backend and use your own CPU/GPU. Claude can plan, critique, compare, and refine, but Claude is not the image model.
+Claude ImageGen is a Claude Code plugin for making local PNG images from Claude-authored scene plans. Claude does the planning and critique, plus comparison and refinement. Your machine renders on CPU by default, with optional local GPU diffusion for stronger photoreal detail.
 
 ## Install In Claude Code
 
 Claude ImageGen is available through the Claude Code plugin marketplace from this GitHub repo. You do not need to clone the repo for normal Claude Code use.
 
-Fastest setup on this machine:
+Fastest setup:
 
 ```text
 /plugin marketplace add rexkoh425/ClaudeImageGen
@@ -19,11 +17,17 @@ On another machine, install Claude Code first, sign in to GitHub if this repo is
 
 Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. To update after a new release, run `/plugin install claude-imagegen@claude-imagegen` again and restart.
 
-After restart, ask Claude Code: `Use the generate-image skill to create <your prompt> with multi-refinement and a 0.9 gate`. Claude does the planning and critique; your machine does the CPU/GPU rendering.
+Then ask Claude Code:
+
+```text
+Use the generate-image skill to create <your prompt> with multi-refinement and a 0.9 gate.
+```
+
+The first use may set up more than expected because the plugin checks Python, creates or reuses a plugin-owned virtual environment, verifies numpy/Pillow, and optionally checks Torch/Diffusers/CUDA. That setup is local dependency work, not Claude doing image compute.
 
 ## Local Setup
 
-Use this only when developing from a clone of this repo.
+Use this only when developing from a clone of this repo. Marketplace users normally do not need it.
 
 CPU setup:
 
@@ -39,15 +43,19 @@ python -m pip install -e ".[diffusion]"
 claude-imagegen setup --with-diffusion
 ```
 
-`setup` reports missing Python packages, optional Diffusers/Torch packages, CUDA visibility, and the next install command when something is missing.
+`setup` reports missing Python packages, optional Diffusers/Torch packages, CUDA visibility, and the next install command when something is missing. If basic CPU dependencies are missing, run `python -m pip install -e .`; if photoreal GPU dependencies are missing, run `python -m pip install -e ".[diffusion]"`.
 
 ## Best Result Loop
 
-For simple images: `claude-imagegen generate --prompt "cinematic red sun over a blue ocean with misty mountains" --output-dir claude-imagegen-output/demo --width 720 --height 480 --quality-target 0.9 --save-candidates 4`
+For simple images:
+
+```bash
+claude-imagegen generate --prompt "cinematic red sun over a blue ocean with misty mountains" --output-dir claude-imagegen-output/demo --width 720 --height 480 --quality-target 0.9 --save-candidates 4
+```
 
 For better CPU results, ask Claude Code to use the `generate-image` skill for a multi-refinement loop. Claude writes `scene-plan.json`, renders `image.png`, inspects `critique-request.json`, writes visual feedback, then reruns `refine` for 2-4 rounds when the image is close but not detailed enough.
 
-The scene plan supports diagram and icon primitives: `text`, `arrow`, `rounded_rectangle`, `aperture`, `sparkle`, and explicit `stroke_width`. Use these for architecture diagrams, app icons, labels, connectors, and crisp vector-style shapes. For diagrams, keep labels inside boxes, keep badges inset, and give image tiles their own label space.
+The scene plan supports diagram and icon primitives: `text`, `arrow`, `rounded_rectangle`, `aperture`, `sparkle`, and explicit `stroke_width`. Use these for architecture diagrams, app icons, labels, connectors, and crisp vector-style shapes. For diagrams, keep labels inside boxes, keep badges inset, and give image tiles their own label space. `service tiles` and `image tiles` are treated as diagram/UI tiles; add explicit `floor`, `stone`, or `wet` only when you want a physical floor.
 
 ## Higher-Detail GPU Image
 

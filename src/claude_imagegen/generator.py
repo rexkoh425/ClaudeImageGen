@@ -17,7 +17,7 @@ from .prompt import parse_prompt
 from .quality import apply_quality_report, image_detail_metrics
 from .render import cap_dimensions, render_candidate, render_scene_plan
 from .scene import SceneCandidate, build_initial_candidate, mutate_candidate
-from .scene_plan import PlannedCloud, PlannedObject, ScenePlan, parse_scene_plan
+from .scene_plan import PlannedCloud, PlannedObject, PlannedTexture, ScenePlan, parse_scene_plan
 from .score import ScoreResult, image_similarity_details, score_image
 
 
@@ -72,16 +72,28 @@ class CandidateSnapshot:
 
 GRAPHIC_PROMPT_TOKENS = {
     "architecture",
+    "arrow",
+    "arrows",
     "badge",
+    "badges",
+    "box",
+    "boxes",
+    "cpu",
     "diagram",
     "flow",
     "flowchart",
+    "gpu",
     "icon",
     "infographic",
     "label",
+    "labels",
     "logo",
     "pipeline",
+    "service",
+    "services",
     "schematic",
+    "tile",
+    "tiles",
     "ui",
 }
 HARD_EDGE_ELEMENT_KINDS = {
@@ -503,8 +515,9 @@ def _refine_scene_plan(
 
     objects = list(scene_plan.objects)
     clouds = list(scene_plan.clouds)
+    textures = list(scene_plan.textures)
     for missing_object in requested_objects:
-        if missing_object in plan_objects:
+        if missing_object in plan_objects or _scene_plan_satisfies_requested_object(scene_plan, missing_object):
             continue
         planned_object = _default_planned_object(missing_object, index=len(objects), scene_plan=scene_plan)
         objects.append(planned_object)
@@ -524,6 +537,17 @@ def _refine_scene_plan(
         style["saturation"] = min(1.0, style.get("saturation", 0.0) + 0.16)
         actions.append("increased saturation for requested colors")
 
+    if (
+        "diagram" in requested_objects
+        and _scene_plan_satisfies_requested_object(scene_plan, "diagram")
+        and _diagram_detail_refinement_needed(scene_plan, score)
+    ):
+        textures.extend(_default_diagram_detail_textures(scene_plan, start_index=len(textures)))
+        style["detail"] = max(style.get("detail", 0.0), 0.62)
+        style["sharpen"] = max(style.get("sharpen", 0.0), 0.58)
+        style["contrast"] = min(1.0, max(style.get("contrast", 0.0), 0.36))
+        actions.append("added diagram detail texture")
+
     if not actions:
         return scene_plan, []
 
@@ -532,9 +556,85 @@ def _refine_scene_plan(
             scene_plan,
             objects=tuple(objects),
             clouds=tuple(clouds),
+            textures=tuple(sorted(textures, key=lambda texture: texture.z)),
             style=style,
         ),
         actions,
+    )
+
+
+def _scene_plan_satisfies_requested_object(scene_plan: ScenePlan, requested_object: str) -> bool:
+    if requested_object != "diagram":
+        return False
+
+    element_kinds = {_normalized_element_kind(element.kind) for element in scene_plan.elements}
+    hard_edge_count = len(element_kinds & {_normalized_element_kind(kind) for kind in HARD_EDGE_ELEMENT_KINDS})
+    if hard_edge_count >= 2:
+        return True
+
+    semantic_text: list[str] = [scene_plan.title]
+    semantic_text.extend(element.kind for element in scene_plan.elements)
+    semantic_text.extend(element.label for element in scene_plan.elements)
+    for element in scene_plan.elements:
+        text = element.extra.get("text")
+        if isinstance(text, str):
+            semantic_text.append(text)
+    tokens = set(parse_prompt(" ".join(semantic_text)).tokens)
+    return bool(element_kinds and tokens & GRAPHIC_PROMPT_TOKENS)
+
+
+def _normalized_element_kind(kind: str) -> str:
+    return kind.replace("-", "_").strip().lower()
+
+
+def _diagram_detail_refinement_needed(scene_plan: ScenePlan, score: ScoreResult) -> bool:
+    if any(
+        texture.extra.get("auto_refined") is True and texture.extra.get("purpose") == "diagram_detail"
+        for texture in scene_plan.textures
+    ):
+        return False
+    if len(scene_plan.textures) >= 2 and scene_plan.style.get("detail", 0.0) >= 0.55:
+        return False
+    return (
+        score.details.get("object_score", 1.0) < 0.58
+        or score.details.get("color_score", 1.0) < 0.58
+        or score.details.get("contrast_score", 1.0) < 0.48
+    )
+
+
+def _default_diagram_detail_textures(scene_plan: ScenePlan, *, start_index: int) -> tuple[PlannedTexture, ...]:
+    palette = scene_plan.palette
+    cool = palette[1] if len(palette) > 1 else COLOR_RGB["cyan"]
+    warm = palette[2] if len(palette) > 2 else COLOR_RGB["gold"]
+    return (
+        PlannedTexture(
+            kind="hatching",
+            label="auto-refined subtle diagram hatch detail",
+            count=160,
+            region=(0.04, 0.12, 0.96, 0.88),
+            color=cool,
+            density=0.42,
+            scale=0.026,
+            opacity=0.16,
+            blend="screen",
+            seed=131 + start_index,
+            z=12 + start_index,
+            extra={"auto_refined": True, "purpose": "diagram_detail"},
+        ),
+        PlannedTexture(
+            kind="speckles",
+            label="auto-refined premium diagram micro highlights",
+            count=260,
+            region=(0.04, 0.10, 0.96, 0.86),
+            color=warm,
+            density=0.28,
+            scale=0.012,
+            opacity=0.18,
+            blend="screen",
+            seed=197 + start_index,
+            z=13 + start_index,
+            extra={"auto_refined": True, "purpose": "diagram_detail"},
+        ),
     )
 
 
@@ -674,7 +774,11 @@ def _revision_hints(
 
     if scene_plan and spec_objects:
         plan_objects = {obj.kind for obj in scene_plan.objects}
-        missing_objects = [obj for obj in spec_objects if obj not in plan_objects]
+        missing_objects = [
+            obj
+            for obj in spec_objects
+            if obj not in plan_objects and not _scene_plan_satisfies_requested_object(scene_plan, obj)
+        ]
         if missing_objects:
             hints.append(f"Add missing scene-plan objects: {', '.join(missing_objects)}.")
 

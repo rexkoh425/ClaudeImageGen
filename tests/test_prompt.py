@@ -40,5 +40,17 @@ def test_parse_prompt_does_not_treat_diagram_image_tile_as_floor():
         "readable labels, arrows, CPU and GPU badges, and a final image tile"
     )
 
-    assert "abstract" in spec.objects
+    assert "diagram" in spec.objects
+    assert "abstract" not in spec.objects
     assert "floor" not in spec.objects
+
+
+def test_parse_prompt_treats_service_tiles_as_diagram_not_floor():
+    spec = parse_prompt(
+        "premium reference architecture diagram with rounded-rectangle service tiles, "
+        "gold and blue arrows, CPU and GPU badges, and a final image tile"
+    )
+
+    assert "diagram" in spec.objects
+    assert "floor" not in spec.objects
+    assert "abstract" not in spec.objects

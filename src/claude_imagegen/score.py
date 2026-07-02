@@ -23,6 +23,7 @@ OBJECT_FEATURES = (
     "building",
     "portrait",
     "robot",
+    "diagram",
     "abstract",
 )
 STYLE_FEATURES = ("cinematic", "watercolor", "dreamy")
@@ -296,6 +297,16 @@ def _edge_density(array: np.ndarray) -> float:
     return _clamp01(float(dx + dy) / 26.0)
 
 
+def _hard_edge_density(array: np.ndarray) -> float:
+    luminance = array.mean(axis=2)
+    if luminance.shape[0] <= 1 or luminance.shape[1] <= 1:
+        return 0.0
+    dx = np.abs(np.diff(luminance, axis=1))
+    dy = np.abs(np.diff(luminance, axis=0))
+    density = ((dx > 18.0).mean() + (dy > 18.0).mean()) / 2.0
+    return _clamp01(float(density / 0.16))
+
+
 def _mood_score(array: np.ndarray, mood_words: tuple[str, ...]) -> float:
     if not mood_words:
         return 0.55
@@ -418,6 +429,13 @@ def _object_presence(array: np.ndarray, obj: str) -> float:
         return max(_edge_density(lower), _dark_presence(middle))
     if obj in {"portrait", "robot"}:
         return max(_edge_density(middle), _contrast_score(middle))
+    if obj == "diagram":
+        return _clamp01(
+            0.36 * _contrast_score(array)
+            + 0.34 * _hard_edge_density(array)
+            + 0.18 * max(_blue_presence(array), _warm_presence(array))
+            + 0.12 * _edge_density(array)
+        )
     if obj == "abstract":
         return max(_contrast_score(array), _edge_density(array))
     return _contrast_score(array)

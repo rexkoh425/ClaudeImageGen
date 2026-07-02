@@ -37,9 +37,32 @@ COLOR_WORDS = {
 }
 
 OBJECT_ALIASES = {
-    "abstract": {"abstract", "architecture", "diagram", "geometric", "pattern", "pipeline", "poster"},
+    "abstract": {"abstract", "geometric", "pattern", "poster"},
     "building": {"building", "buildings", "city", "cityscape", "skyline", "tower", "towers"},
     "cloud": {"cloud", "clouds"},
+    "diagram": {
+        "architecture",
+        "arrow",
+        "arrows",
+        "badge",
+        "badges",
+        "connector",
+        "connectors",
+        "diagram",
+        "flow",
+        "flowchart",
+        "icon",
+        "icons",
+        "infographic",
+        "pipeline",
+        "reference",
+        "schematic",
+        "service",
+        "services",
+        "tile",
+        "tiles",
+        "ui",
+    },
     "floor": {"floor", "floors", "stone", "stones", "tiles", "wet"},
     "flower": {"flower", "flowers", "botanical", "garden", "petal", "petals"},
     "forest": {"forest", "woods", "jungle", "trees", "tree"},
@@ -80,6 +103,38 @@ MOOD_WORDS = {
 
 DEFAULT_COLORS = ("blue", "gold")
 TOKEN_RE = re.compile(r"[a-z0-9]+")
+GRAPHIC_CONTEXT_WORDS = frozenset(
+    {
+        "architecture",
+        "arrow",
+        "arrows",
+        "badge",
+        "badges",
+        "box",
+        "boxes",
+        "connector",
+        "connectors",
+        "diagram",
+        "flow",
+        "flowchart",
+        "icon",
+        "icons",
+        "image",
+        "infographic",
+        "label",
+        "labels",
+        "pipeline",
+        "reference",
+        "rounded",
+        "schematic",
+        "service",
+        "services",
+        "tile",
+        "tiles",
+        "ui",
+    }
+)
+EXPLICIT_FLOOR_WORDS = frozenset({"floor", "floors", "stone", "stones", "wet"})
 
 
 def parse_prompt(prompt: str) -> PromptSpec:
@@ -94,6 +149,8 @@ def parse_prompt(prompt: str) -> PromptSpec:
     objects: list[str] = []
     for canonical, aliases in OBJECT_ALIASES.items():
         if aliases & token_set:
+            if canonical == "floor" and _is_graphic_tile_context(token_set):
+                continue
             objects.append(canonical)
 
     if not objects:
@@ -110,3 +167,11 @@ def parse_prompt(prompt: str) -> PromptSpec:
         style_words=styles,
         mood_words=moods,
     )
+
+
+def _is_graphic_tile_context(token_set: set[str]) -> bool:
+    if not {"tile", "tiles"} & token_set:
+        return False
+    if EXPLICIT_FLOOR_WORDS & token_set:
+        return False
+    return bool(GRAPHIC_CONTEXT_WORDS & token_set)

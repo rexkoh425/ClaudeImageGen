@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.16"
+EXPECTED_VERSION = "0.1.17"
 
 
 def test_plugin_manifest_has_required_metadata():
