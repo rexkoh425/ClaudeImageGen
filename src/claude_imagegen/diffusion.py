@@ -10,6 +10,7 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from .candidates import compute_candidate_aesthetic_score
+from .caption import CaptionDiagnostics, caption_image, caption_prompt_diagnostics
 from .critique import write_critique_request
 from .quality import apply_quality_report, image_detail_metrics
 from .render import cap_dimensions
@@ -19,7 +20,7 @@ PHOTOREAL_DIFFUSION_MODEL = "SG161222/RealVisXL_V5.0"
 DEFAULT_NEGATIVE_PROMPT = (
     "cartoon, illustration, painting, CGI, vector art, low detail, blurry, flat lighting, "
     "deformed architecture, people, text, watermark, extra furniture, chairs, tables, clutter, "
-    "washed-out blacks, muddy details"
+    "washed-out blacks, muddy details, soft focus, smeared foliage"
 )
 PHOTOREAL_PROMPT_PREFIX = (
     "photorealistic high-detail DSLR image, crisp micro texture, natural materials, "
@@ -48,8 +49,8 @@ DIFFUSION_PROFILES: dict[str, dict[str, object]] = {
     },
     "night-photoreal": {
         "model": PHOTOREAL_DIFFUSION_MODEL,
-        "steps": 28,
-        "guidance_scale": 7.0,
+        "steps": 34,
+        "guidance_scale": 7.5,
         "prompt_prefix": NIGHT_PHOTOREAL_PROMPT_PREFIX,
         "negative_prompt": DEFAULT_NEGATIVE_PROMPT,
         "focus_terms": ("night", "lamp", "mist", "reflection", "detail"),
@@ -76,6 +77,12 @@ class DiffusionOptions:
     device: str = "auto"
     quality_target: float | None = None
     prompt_focus: tuple[str, ...] = ("auto",)
+    caption_backend: str = "local"
+    caption_model: str | None = None
+    caption_device: str = "auto"
+    caption_similarity_backend: str = "local"
+    caption_similarity_model: str | None = None
+    caption_similarity_device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -162,6 +169,21 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
     selected_image.save(image_path)
     candidates_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
 
+    caption_result = caption_image(
+        selected_image,
+        prompt=options.prompt,
+        backend=options.caption_backend,
+        model_name=options.caption_model,
+        device=options.caption_device,
+        similarity_backend=options.caption_similarity_backend,
+        similarity_model=options.caption_similarity_model,
+        similarity_device=options.caption_similarity_device,
+    )
+    caption_diagnostics = (
+        CaptionDiagnostics((), (), (), ())
+        if caption_result.backend == "none"
+        else caption_prompt_diagnostics(options.prompt, caption_result.caption)
+    )
     prompt_token_estimate = _prompt_token_estimate(str(config["prompt"]))
     metadata: dict[str, object] = {
         "engine": "diffusers-text-to-image-v1",
@@ -205,8 +227,27 @@ def generate_diffusion_image(options: DiffusionOptions) -> DiffusionResult:
         "image_detail_metrics": selected["image_detail_metrics"],
         "prompt_signal_score": selected["prompt_signal_score"],
         "prompt_signal_details": selected["prompt_signal_details"],
-        "caption_similarity_score": 0.0,
-        "image_caption": "",
+        "caption_backend": caption_result.backend,
+        "caption_model": caption_result.model_name,
+        "caption_device": caption_result.requested_device,
+        "effective_caption_device": caption_result.effective_device,
+        "caption_similarity_backend": caption_result.similarity_backend,
+        "caption_similarity_model": caption_result.similarity_model,
+        "caption_similarity_device": caption_result.similarity_device,
+        "effective_caption_similarity_device": caption_result.effective_similarity_device,
+        "image_caption": caption_result.caption,
+        "caption_similarity_score": round(caption_result.prompt_similarity_score, 6),
+        "lexical_caption_similarity_score": round(caption_result.lexical_prompt_similarity_score, 6),
+        "semantic_caption_similarity_score": (
+            round(caption_result.semantic_prompt_similarity_score, 6)
+            if caption_result.semantic_prompt_similarity_score is not None
+            else None
+        ),
+        "caption_tokens": list(caption_result.tokens),
+        "caption_missing_objects": list(caption_diagnostics.missing_objects),
+        "caption_missing_colors": list(caption_diagnostics.missing_colors),
+        "caption_unexpected_objects": list(caption_diagnostics.unexpected_objects),
+        "caption_unexpected_colors": list(caption_diagnostics.unexpected_colors),
         "visual_critique_required": True,
         "revision_hints": [
             "Ask Claude to inspect image.png and fill critique-request.json before accepting high quality targets.",
@@ -343,7 +384,9 @@ def _quality_prompt_prefix(prefix: str, *, focus_terms: tuple[str, ...], profile
     if focus.intersection({"reflection", "wet", "mirror", "floor"}):
         priority_clauses.append("mirror-wet black floor reflections")
     if focus.intersection({"leaf detail", "plant", "foliage"}):
-        priority_clauses.append("sharp tropical leaf edges")
+        priority_clauses.append("sharp tropical leaf edges with leaf-vein microtexture")
+    if focus.intersection({"greenhouse", "glass", "mullion"}):
+        priority_clauses.append("crisp glass mullions")
     clauses = base_clauses[:2] + priority_clauses + base_clauses[2:]
     return ", ".join(dict.fromkeys(clauses))
 

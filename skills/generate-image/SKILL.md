@@ -69,7 +69,11 @@ claude-imagegen diffuse \
   --height 768 \
   --seeds 101,202,303,404 \
   --device auto \
-  --quality-target 0.9
+  --quality-target 0.9 \
+  --caption-backend transformers-blip \
+  --caption-device auto \
+  --caption-similarity-backend transformers-sentence \
+  --caption-similarity-device auto
 ```
 
 Then inspect `image.png`, `candidates/contact-sheet.png`, and `critique-request.json` with Claude vision before accepting the result.

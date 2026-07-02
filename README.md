@@ -13,9 +13,7 @@ Fastest setup:
 /plugin install claude-imagegen@claude-imagegen
 ```
 
-On another machine, install Claude Code first, sign in to GitHub if this repo is private, then run the same two commands in Claude Code.
-
-Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. To update after a new release, run `/plugin install claude-imagegen@claude-imagegen` again and restart.
+Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. For normal Claude Code use, stop here.
 
 Then ask Claude Code:
 
@@ -25,7 +23,26 @@ Use the generate-image skill to create <your prompt> with multi-refinement and a
 
 The first use may set up more than expected because the plugin checks Python, creates or reuses a plugin-owned virtual environment, verifies numpy/Pillow, and optionally checks Torch/Diffusers/CUDA. That setup is local dependency work, not Claude doing image compute.
 
-## Local Setup
+## Update To New Release
+
+Run the install command again, then restart Claude Code:
+
+```text
+/plugin install claude-imagegen@claude-imagegen
+```
+
+## Install On Another Machine
+
+On another machine, install Claude Code, sign in to GitHub if this repo is private, then run the same marketplace commands:
+
+```text
+/plugin marketplace add rexkoh425/ClaudeImageGen
+/plugin install claude-imagegen@claude-imagegen
+```
+
+Restart Claude Code before using the skill.
+
+## Run It Locally From This Repo
 
 Use this only when developing from a clone of this repo. Marketplace users normally do not need it.
 
@@ -59,7 +76,7 @@ The scene plan supports diagram and icon primitives: `text`, `arrow`, `rounded_r
 
 ## Higher-Detail GPU Image
 
-After installing the diffusion extra: `claude-imagegen diffuse --profile night-photoreal --prompt "deep night glass greenhouse, tropical plants, sharp leaves, warm tungsten lamps, mist beams, black wet mirror floor, no people" --output-dir claude-imagegen-output/greenhouse-gpu --width 1024 --height 768 --seeds 101,202,303,404 --device auto --quality-target 0.9`
+After installing the diffusion extra: `claude-imagegen diffuse --profile night-photoreal --prompt "deep night glass greenhouse, tropical plants, sharp leaves, warm tungsten lamps, mist beams, black wet mirror floor, no people" --output-dir claude-imagegen-output/greenhouse-gpu --width 1024 --height 768 --seeds 101,202,303,404 --device auto --quality-target 0.9 --caption-backend transformers-blip --caption-device auto --caption-similarity-backend transformers-sentence --caption-similarity-device auto`
 
 For multi-refinement, rerun with `--initial-image <previous image.png> --strength 0.16`. The `night-photoreal` profile keeps lamp, mist-beam, floor, and leaf-detail terms compact so they do not fall out of CLIP's text window.
 

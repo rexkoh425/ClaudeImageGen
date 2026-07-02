@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.17"
+EXPECTED_VERSION = "0.1.18"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -52,6 +52,8 @@ def test_claude_skill_and_executable_are_present():
     assert "claude-imagegen diffuse" in skill_text
     assert "--initial-image" in skill_text
     assert "--strength 0.16" in skill_text
+    assert "--caption-backend transformers-blip" in skill_text
+    assert "--caption-similarity-backend transformers-sentence" in skill_text
     assert "claude-imagegen pair-eval" in skill_text
     assert "claude-imagegen enhance-night" in skill_text
     assert "claude-imagegen eval-plan" in skill_text
@@ -159,6 +161,10 @@ def test_readme_documents_claude_plugin_install_flow():
 
     assert len(readme.splitlines()) <= 170
     assert "Fastest setup" in readme
+    assert "## Update To New Release" in readme
+    assert "## Install On Another Machine" in readme
+    assert "## Run It Locally From This Repo" in readme
+    assert "For normal Claude Code use, stop here." in readme
     assert "Best Result Loop" in readme
     assert "Claude does the planning and critique" in readme
     assert "Claude ImageGen is available through the Claude Code plugin marketplace" in readme
@@ -170,6 +176,8 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "claude-imagegen diffuse" in readme
     assert "--initial-image" in readme
     assert "--strength 0.16" in readme
+    assert "--caption-backend transformers-blip" in readme
+    assert "--caption-similarity-backend transformers-sentence" in readme
     assert "claude-imagegen pair-eval" in readme
     assert "claude-imagegen enhance-night" in readme
     assert "claude-imagegen eval-plan" in readme

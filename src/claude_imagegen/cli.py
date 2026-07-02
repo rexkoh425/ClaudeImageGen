@@ -167,6 +167,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=("auto",),
         help="Comma-separated prompt-critical terms for candidate ranking; default auto derives terms from prompt.",
     )
+    diffuse.add_argument(
+        "--caption-backend",
+        choices=("none", "local", "transformers-blip"),
+        default="local",
+        help="Caption backcheck backend for what the diffusion image appears to contain.",
+    )
+    diffuse.add_argument(
+        "--caption-model",
+        help="Optional model id/path for --caption-backend transformers-blip.",
+    )
+    diffuse.add_argument(
+        "--caption-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional model-backed diffusion caption backchecking.",
+    )
+    diffuse.add_argument(
+        "--caption-similarity-backend",
+        choices=CAPTION_SIMILARITY_BACKENDS,
+        default="local",
+        help="Prompt/caption text similarity scorer for diffusion outputs.",
+    )
+    diffuse.add_argument(
+        "--caption-similarity-model",
+        help="Optional model id/path for --caption-similarity-backend transformers-sentence.",
+    )
+    diffuse.add_argument(
+        "--caption-similarity-device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="Device for optional semantic prompt/caption similarity scoring on diffusion outputs.",
+    )
 
     refine = subcommands.add_parser("refine", help="Refine from a previous claude-imagegen output directory.")
     refine.add_argument("--from-dir", type=Path, required=True, help="Previous output directory containing image.png.")
@@ -471,6 +503,12 @@ def main(argv: list[str] | None = None) -> int:
                 device=args.device,
                 quality_target=args.quality_target,
                 prompt_focus=args.prompt_focus,
+                caption_backend=args.caption_backend,
+                caption_model=args.caption_model,
+                caption_device=args.caption_device,
+                caption_similarity_backend=args.caption_similarity_backend,
+                caption_similarity_model=args.caption_similarity_model,
+                caption_similarity_device=args.caption_similarity_device,
             )
         )
         print(f"Generated {result.image_path}")
@@ -479,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Profile {result.metadata['diffusion_profile']} model {result.metadata['model']}")
         print(f"Selected seed {result.metadata['selected_seed']} on {result.metadata['effective_device']}")
         print(f"Prompt signal {result.metadata['prompt_signal_score']} terms {', '.join(result.metadata['prompt_focus_terms'])}")
+        print(f"Caption {result.metadata['image_caption']}")
         if result.metadata.get("prompt_length_warning"):
             print(f"Warning {result.metadata['prompt_length_warning']}")
         print(f"Candidates {result.candidates_path}")

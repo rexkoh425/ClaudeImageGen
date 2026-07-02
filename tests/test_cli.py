@@ -151,6 +151,18 @@ def test_cli_accepts_siglip_similarity_backend_options():
             "cuda",
             "--quality-target",
             "0.9",
+            "--caption-backend",
+            "transformers-blip",
+            "--caption-model",
+            "Salesforce/blip-image-captioning-base",
+            "--caption-device",
+            "cuda",
+            "--caption-similarity-backend",
+            "transformers-sentence",
+            "--caption-similarity-model",
+            "sentence-transformers/all-MiniLM-L6-v2",
+            "--caption-similarity-device",
+            "cuda",
         ]
     )
     assert diffuse_args.command == "diffuse"
@@ -159,6 +171,12 @@ def test_cli_accepts_siglip_similarity_backend_options():
     assert diffuse_args.strength == 0.28
     assert diffuse_args.device == "cuda"
     assert diffuse_args.quality_target == 0.9
+    assert diffuse_args.caption_backend == "transformers-blip"
+    assert diffuse_args.caption_model == "Salesforce/blip-image-captioning-base"
+    assert diffuse_args.caption_device == "cuda"
+    assert diffuse_args.caption_similarity_backend == "transformers-sentence"
+    assert diffuse_args.caption_similarity_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert diffuse_args.caption_similarity_device == "cuda"
 
 
 def test_setup_command_prints_diffusion_and_cuda_next_steps(monkeypatch, capsys):
@@ -345,6 +363,7 @@ def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_pat
 
 def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkeypatch):
     from claude_imagegen import diffusion as diffusion_module
+    from claude_imagegen.caption import CaptionResult
     from claude_imagegen.diffusion import DiffusionOptions, generate_diffusion_image
 
     class FakePipeline:
@@ -385,6 +404,25 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
 
     monkeypatch.setattr(diffusion_module, "_load_pipeline", fake_load_pipeline)
     monkeypatch.setattr(diffusion_module, "_torch_generator", lambda *, seed, device: None)
+    monkeypatch.setattr(
+        diffusion_module,
+        "caption_image",
+        lambda *args, **kwargs: CaptionResult(
+            caption="a photoreal night greenhouse with tropical plants and tungsten lamps",
+            prompt_similarity_score=0.81,
+            backend="transformers-blip",
+            model_name="Salesforce/blip-image-captioning-base",
+            requested_device="cuda",
+            effective_device="cuda",
+            tokens=("photoreal", "night", "greenhouse", "plants", "tungsten", "lamps"),
+            similarity_backend="transformers-sentence",
+            similarity_model="sentence-transformers/all-MiniLM-L6-v2",
+            similarity_device="cuda",
+            effective_similarity_device="cuda",
+            lexical_prompt_similarity_score=0.67,
+            semantic_prompt_similarity_score=0.81,
+        ),
+    )
 
     output_dir = tmp_path / "diffusion"
     result = generate_diffusion_image(
@@ -396,6 +434,10 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
             seeds=(101, 202),
             device="cuda",
             quality_target=0.9,
+            caption_backend="transformers-blip",
+            caption_device="cuda",
+            caption_similarity_backend="transformers-sentence",
+            caption_similarity_device="cuda",
         )
     )
 
@@ -427,6 +469,17 @@ def test_diffusion_generation_writes_multi_seed_artifacts(tmp_path: Path, monkey
     assert metadata["selection_strategy"] == "prompt-aware-detail-aesthetic-v1"
     assert set(metadata["prompt_focus_terms"]) >= {"night", "plant", "lamp"}
     assert metadata["prompt_signal_score"] == metadata["recommended_candidate_prompt_signal_score"]
+    assert metadata["caption_backend"] == "transformers-blip"
+    assert metadata["caption_model"] == "Salesforce/blip-image-captioning-base"
+    assert metadata["caption_device"] == "cuda"
+    assert metadata["effective_caption_device"] == "cuda"
+    assert metadata["caption_similarity_backend"] == "transformers-sentence"
+    assert metadata["caption_similarity_model"] == "sentence-transformers/all-MiniLM-L6-v2"
+    assert metadata["caption_similarity_device"] == "cuda"
+    assert metadata["effective_caption_similarity_device"] == "cuda"
+    assert metadata["image_caption"] == "a photoreal night greenhouse with tropical plants and tungsten lamps"
+    assert metadata["caption_similarity_score"] == 0.81
+    assert metadata["semantic_caption_similarity_score"] == 0.81
 
     candidates = json.loads(result.candidates_path.read_text(encoding="utf-8"))
     assert {candidate["seed"] for candidate in candidates} == {101, 202}
@@ -478,9 +531,11 @@ def test_diffusion_profile_applies_photoreal_defaults(tmp_path: Path, monkeypatc
     assert captured["device"] == "auto"
     assert metadata["diffusion_profile"] == "night-photoreal"
     assert metadata["model"] == "SG161222/RealVisXL_V5.0"
-    assert metadata["steps"] == 28
-    assert metadata["guidance_scale"] == 7.0
+    assert metadata["steps"] == 34
+    assert metadata["guidance_scale"] == 7.5
     assert "furniture" in metadata["negative_prompt"]
+    assert "soft focus" in metadata["negative_prompt"]
+    assert "smeared foliage" in metadata["negative_prompt"]
     assert metadata["normalized_prompt"].startswith("photorealistic DSLR high detail")
 
 
@@ -529,6 +584,8 @@ def test_night_diffusion_profile_promotes_strict_quality_features(tmp_path: Path
     assert "visible tungsten light shafts in mist" in early_prompt
     assert "mirror-wet black floor reflections" in early_prompt
     assert "sharp tropical leaf edges" in early_prompt
+    assert "leaf-vein microtexture" in early_prompt
+    assert "crisp glass mullions" in early_prompt
     assert "warm tungsten lamps visible" in early_prompt
     assert captured["prompt"] == normalized_prompt
 
@@ -604,12 +661,14 @@ def test_night_diffusion_profile_keeps_prompt_inside_clip_safety_margin(tmp_path
 
     metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
     lower_prompt = metadata["normalized_prompt"].lower()
-    assert metadata["prompt_token_estimate"] <= 42
+    assert metadata["prompt_token_estimate"] <= 52
     assert metadata["prompt_length_warning"] is None
     assert "warm tungsten lamps" in lower_prompt
     assert "visible tungsten light shafts in mist" in lower_prompt
     assert "mirror-wet black floor reflections" in lower_prompt
     assert "sharp tropical leaf edges" in lower_prompt
+    assert "leaf-vein microtexture" in lower_prompt
+    assert "crisp glass mullions" in lower_prompt
     assert "no people" in lower_prompt
 
 
