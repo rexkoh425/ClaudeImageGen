@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.11"
+EXPECTED_VERSION = "0.1.12"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -65,6 +65,12 @@ def test_claude_skill_and_executable_are_present():
     assert "scene-plan.json" in skill_text
     assert '"stops"' in skill_text
     assert '"elements"' in skill_text
+    assert "`text`" in skill_text
+    assert "`arrow`" in skill_text
+    assert "`rounded_rectangle`" in skill_text
+    assert "`aperture`" in skill_text
+    assert "`sparkle`" in skill_text
+    assert "`stroke_width`" in skill_text
     assert '"path"' in skill_text
     assert '"blur"' in skill_text
     assert '"blend"' in skill_text
@@ -163,8 +169,13 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "--audit" in readme
     assert "--shadow-lift" in readme
     assert "--foliage-clarity" in readme
+    assert "--mist-beam-strength" in readme
     assert "claude-imagegen setup --with-diffusion" in readme
     assert "--profile night-photoreal" in readme
+    assert "`rounded_rectangle`" in readme
+    assert "`aperture`" in readme
+    assert "`sparkle`" in readme
+    assert "`stroke_width`" in readme
     assert "scene-plan.json" in readme
     assert "image.png" in readme
     assert "metadata.json" in readme

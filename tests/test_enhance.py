@@ -76,6 +76,29 @@ def _soft_foliage_fixture(path: Path) -> Image.Image:
     return image
 
 
+def _lamp_mist_fixture(path: Path) -> Image.Image:
+    width, height = 96, 64
+    arr = np.full((height, width, 3), (0.06, 0.085, 0.08), dtype=np.float32)
+    arr[:, :, 2] += 0.018
+    arr[8:15, 42:54, :] = (0.95, 0.64, 0.25)
+    arr[15:19, 45:51, :] = (1.0, 0.82, 0.34)
+    arr[22:54, 34:62, :] += (0.025, 0.028, 0.03)
+    arr[38:58, 10:86, :] += (0.018, 0.018, 0.017)
+    image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
+    image.save(path)
+    return image
+
+
+def _lamp_with_warm_leaf_fixture(path: Path) -> Image.Image:
+    image = _lamp_mist_fixture(path)
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    arr[25:48, 68:90, :] = (0.54, 0.43, 0.13)
+    arr[27:46, 72:88, 1] += 0.06
+    image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
+    image.save(path)
+    return image
+
+
 def _luma_stats(image: Image.Image) -> dict[str, float]:
     arr = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
     luma = (0.2126 * arr[:, :, 0]) + (0.7152 * arr[:, :, 1]) + (0.0722 * arr[:, :, 2])
@@ -109,6 +132,11 @@ def _region_edge_density(image: Image.Image, region: tuple[int, int, int, int]) 
     horizontal = np.abs(np.diff(luma, axis=1))
     vertical = np.abs(np.diff(luma, axis=0))
     return float((np.mean(horizontal > 0.018) + np.mean(vertical > 0.018)) / 2.0)
+
+
+def _region_mean_rgb(image: Image.Image, region: tuple[int, int, int, int]) -> np.ndarray:
+    arr = np.asarray(image.convert("RGB").crop(region), dtype=np.float32) / 255.0
+    return np.mean(arr, axis=(0, 1))
 
 
 def test_enhance_night_preserves_darkness_and_writes_pair_request(tmp_path: Path):
@@ -271,6 +299,107 @@ def test_enhance_night_foliage_clarity_targets_green_texture(tmp_path: Path):
     assert metadata["foliage_clarity"] == 0.8
 
 
+def test_enhance_night_can_add_warm_mist_beams_from_lamps(tmp_path: Path):
+    from claude_imagegen.enhance import EnhanceNightOptions, enhance_night_image
+
+    input_path = tmp_path / "lamp-mist-input.png"
+    before = _lamp_mist_fixture(input_path)
+    beam_region = (40, 20, 56, 50)
+    side_region = (6, 20, 22, 50)
+    before_beam_rgb = _region_mean_rgb(before, beam_region)
+    before_side_rgb = _region_mean_rgb(before, side_region)
+
+    result = enhance_night_image(
+        EnhanceNightOptions(
+            input_image=input_path,
+            prompt="deep night greenhouse with warm lamps, visible mist beams, and wet floor reflections",
+            output_dir=tmp_path / "enhanced",
+            quality_target=0.9,
+            night_luma_ceiling=0.34,
+            mist_cap=0.0,
+            highlight_rolloff=0.6,
+            local_contrast=0.0,
+            shadow_lift=0.0,
+            foliage_clarity=0.0,
+            mist_beam_strength=0.55,
+        )
+    )
+
+    after_beam_rgb = _region_mean_rgb(result.image, beam_region)
+    after_side_rgb = _region_mean_rgb(result.image, side_region)
+    beam_gain = float(np.mean(after_beam_rgb - before_beam_rgb))
+    side_gain = float(np.mean(after_side_rgb - before_side_rgb))
+
+    assert beam_gain > 0.025
+    assert beam_gain > side_gain + 0.015
+    assert after_beam_rgb[0] > after_beam_rgb[2]
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["mist_beam_strength"] == 0.55
+    assert metadata["mist_beam_source_count"] >= 1
+
+
+def test_enhance_night_mist_beams_have_defined_cores_not_only_bloom(tmp_path: Path):
+    from claude_imagegen.enhance import EnhanceNightOptions, enhance_night_image
+
+    input_path = tmp_path / "lamp-mist-input.png"
+    before = _lamp_mist_fixture(input_path)
+    core_region = (44, 22, 52, 50)
+    shoulder_region = (24, 22, 32, 50)
+    before_core_rgb = _region_mean_rgb(before, core_region)
+    before_shoulder_rgb = _region_mean_rgb(before, shoulder_region)
+
+    result = enhance_night_image(
+        EnhanceNightOptions(
+            input_image=input_path,
+            prompt="deep night greenhouse with warm lamps, visible mist beams, and wet floor reflections",
+            output_dir=tmp_path / "enhanced",
+            quality_target=0.9,
+            night_luma_ceiling=0.34,
+            mist_cap=0.0,
+            highlight_rolloff=0.6,
+            local_contrast=0.0,
+            shadow_lift=0.0,
+            foliage_clarity=0.0,
+            mist_beam_strength=0.55,
+        )
+    )
+
+    after_core_rgb = _region_mean_rgb(result.image, core_region)
+    after_shoulder_rgb = _region_mean_rgb(result.image, shoulder_region)
+    core_gain = float(np.mean(after_core_rgb - before_core_rgb))
+    shoulder_gain = float(np.mean(after_shoulder_rgb - before_shoulder_rgb))
+
+    assert core_gain > 0.04
+    assert core_gain > shoulder_gain + 0.035
+
+
+def test_enhance_night_mist_beams_ignore_warm_foliage_as_light_source(tmp_path: Path):
+    from claude_imagegen.enhance import EnhanceNightOptions, enhance_night_image
+
+    input_path = tmp_path / "lamp-warm-leaf-input.png"
+    _lamp_with_warm_leaf_fixture(input_path)
+
+    result = enhance_night_image(
+        EnhanceNightOptions(
+            input_image=input_path,
+            prompt="deep night greenhouse with warm lamps, mist beams, yellow leaves, and wet floor reflections",
+            output_dir=tmp_path / "enhanced",
+            quality_target=0.9,
+            night_luma_ceiling=0.34,
+            mist_cap=0.0,
+            highlight_rolloff=0.6,
+            local_contrast=0.0,
+            shadow_lift=0.0,
+            foliage_clarity=0.0,
+            mist_beam_strength=0.55,
+        )
+    )
+
+    metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["mist_beam_source_count"] == 1
+
+
 def test_cli_enhance_night_writes_artifacts_without_diffusion(tmp_path: Path):
     input_path = tmp_path / "hazy-input.png"
     _hazy_night_fixture(input_path)
@@ -300,6 +429,8 @@ def test_cli_enhance_night_writes_artifacts_without_diffusion(tmp_path: Path):
             "0.12",
             "--foliage-clarity",
             "0.4",
+            "--mist-beam-strength",
+            "0.5",
             "--quality-target",
             "0.9",
         ],
@@ -317,5 +448,6 @@ def test_cli_enhance_night_writes_artifacts_without_diffusion(tmp_path: Path):
     assert metadata["backend"] == "local-postprocess"
     assert metadata["shadow_lift"] == 0.12
     assert metadata["foliage_clarity"] == 0.4
+    assert metadata["mist_beam_strength"] == 0.5
     assert metadata["acceptance_requires_pair_evaluation"] is True
     assert "Pair evaluation request" in completed.stdout

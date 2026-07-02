@@ -23,6 +23,7 @@ class EnhanceNightOptions:
     local_contrast: float = 0.9
     shadow_lift: float = 0.0
     foliage_clarity: float = 0.0
+    mist_beam_strength: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
     arr = _apply_foliage_clarity(arr, amount=options.foliage_clarity)
     arr = _enforce_luma_ceiling(arr, ceiling=options.night_luma_ceiling)
     arr = _boost_lower_half_contrast(arr, amount=options.local_contrast * 0.45)
+    arr, mist_beam_source_count = _apply_mist_beams(arr, amount=options.mist_beam_strength)
     arr = _enforce_luma_ceiling(arr, ceiling=options.night_luma_ceiling)
     image = Image.fromarray(np.uint8(np.clip(arr, 0.0, 1.0) * 255), "RGB")
     image.save(image_path)
@@ -77,6 +79,8 @@ def enhance_night_image(options: EnhanceNightOptions) -> EnhanceNightResult:
         "local_contrast": options.local_contrast,
         "shadow_lift": options.shadow_lift,
         "foliage_clarity": options.foliage_clarity,
+        "mist_beam_strength": options.mist_beam_strength,
+        "mist_beam_source_count": mist_beam_source_count,
         "before_mean_luma": before_stats["mean_luma"],
         "before_max_luma": before_stats["max_luma"],
         "before_lower_luma_std": before_stats["lower_luma_std"],
@@ -184,6 +188,117 @@ def _apply_foliage_clarity(arr: np.ndarray, *, amount: float) -> np.ndarray:
     blurred = np.asarray(image.filter(ImageFilter.GaussianBlur(radius=1.1)), dtype=np.float32) / 255.0
     sharpened = np.clip(arr + ((arr - blurred) * clarity * 1.15), 0.0, 1.0)
     return np.clip((arr * (1.0 - mask[..., None])) + (sharpened * mask[..., None]), 0.0, 1.0)
+
+
+def _apply_mist_beams(arr: np.ndarray, *, amount: float) -> tuple[np.ndarray, int]:
+    strength = max(0.0, min(1.0, float(amount)))
+    if strength <= 0:
+        return np.clip(arr, 0.0, 1.0), 0
+    sources = _warm_light_sources(arr)
+    if not sources:
+        return np.clip(arr, 0.0, 1.0), 0
+
+    height, width, _ = arr.shape
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    beam_mask = np.zeros((height, width), dtype=np.float32)
+    shaft_offsets = (-0.16, 0.0, 0.16)
+
+    for index, (source_x, source_y, _weight) in enumerate(sources[:3]):
+        for offset in shaft_offsets:
+            target_x = source_x + (width * offset)
+            target_y = min(height * 0.76, source_y + (height * (0.42 + (index * 0.04))))
+            vx = target_x - source_x
+            vy = target_y - source_y
+            length_sq = max((vx * vx) + (vy * vy), 1.0)
+            dx = xx - source_x
+            dy = yy - source_y
+            projection = ((dx * vx) + (dy * vy)) / length_sq
+            distance = np.abs((dx * vy) - (dy * vx)) / max(length_sq**0.5, 1.0)
+            spread = width * (0.018 + (strength * 0.024))
+            core = np.exp(-((distance / max(spread, 1.0)) ** 2))
+            taper = np.sin(np.clip(projection, 0.0, 1.0) * np.pi)
+            shaft = core * taper
+            shaft[(projection <= 0.02) | (projection >= 1.0) | (yy < source_y) | (yy > height * 0.80)] = 0.0
+            beam_mask = np.maximum(beam_mask, shaft.astype(np.float32))
+
+    if not np.any(beam_mask > 0.001):
+        return np.clip(arr, 0.0, 1.0), len(sources)
+
+    mask_image = Image.fromarray(np.uint8(np.clip(beam_mask, 0.0, 1.0) * 255), "L").filter(
+        ImageFilter.GaussianBlur(radius=max(1.0, min(width, height) * 0.025))
+    )
+    beam_mask = np.asarray(mask_image, dtype=np.float32) / 255.0
+    luma = _luma(arr)
+    visibility = np.clip((0.58 - luma) / 0.5, 0.18, 1.0)
+    alpha = np.clip(beam_mask * visibility * strength * 0.42, 0.0, 0.55)
+    warm = np.array([1.0, 0.72, 0.24], dtype=np.float32)
+    beamed = arr + ((1.0 - arr) * warm[None, None, :] * alpha[..., None])
+    warmth_mix = np.clip(alpha * 0.22, 0.0, 0.16)
+    beamed = (beamed * (1.0 - warmth_mix[..., None])) + (warm[None, None, :] * warmth_mix[..., None])
+    return np.clip(beamed, 0.0, 1.0), len(sources)
+
+
+def _warm_light_sources(arr: np.ndarray) -> list[tuple[float, float, float]]:
+    height, width, _ = arr.shape
+    luma = _luma(arr)
+    red = arr[:, :, 0]
+    green = arr[:, :, 1]
+    blue = arr[:, :, 2]
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    upper = yy < (height * 0.62)
+    warm_mask = (
+        upper
+        & (luma > 0.38)
+        & (red > 0.62)
+        & (green > 0.36)
+        & (blue < 0.48)
+        & ((red - blue) > 0.22)
+        & (red > (blue * 1.45))
+        & (green > (blue * 1.18))
+    )
+    weights = np.where(warm_mask, luma * ((red + green) * 0.5), 0.0)
+    total = float(np.sum(weights))
+    if total <= 1e-6:
+        return []
+
+    sources: list[tuple[float, float, float]] = []
+    bins = min(8, max(1, width // 12))
+    min_weight = total * 0.035
+    for index in range(bins):
+        x0 = int(round(index * width / bins))
+        x1 = int(round((index + 1) * width / bins))
+        section = weights[:, x0:x1]
+        section_weight = float(np.sum(section))
+        if section_weight <= min_weight:
+            continue
+        section_x = xx[:, x0:x1]
+        section_y = yy[:, x0:x1]
+        source_x = float(np.sum(section_x * section) / section_weight)
+        source_y = float(np.sum(section_y * section) / section_weight)
+        sources.append((source_x, source_y, section_weight))
+
+    sources = _merge_nearby_light_sources(sources, width=width, height=height)
+    sources.sort(key=lambda item: item[2], reverse=True)
+    return sources[:4]
+
+
+def _merge_nearby_light_sources(
+    sources: list[tuple[float, float, float]], *, width: int, height: int
+) -> list[tuple[float, float, float]]:
+    merged: list[tuple[float, float, float]] = []
+    for source_x, source_y, source_weight in sorted(sources, key=lambda item: item[0]):
+        if merged:
+            last_x, last_y, last_weight = merged[-1]
+            if abs(source_x - last_x) <= width * 0.16 and abs(source_y - last_y) <= height * 0.18:
+                total = last_weight + source_weight
+                merged[-1] = (
+                    ((last_x * last_weight) + (source_x * source_weight)) / total,
+                    ((last_y * last_weight) + (source_y * source_weight)) / total,
+                    total,
+                )
+                continue
+        merged.append((source_x, source_y, source_weight))
+    return merged
 
 
 def _enforce_luma_ceiling(arr: np.ndarray, *, ceiling: float) -> np.ndarray:

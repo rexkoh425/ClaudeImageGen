@@ -4,7 +4,7 @@ import math
 import random
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .palette import COLOR_RGB, RGB, blend
 from .scene import SceneCandidate
@@ -368,12 +368,22 @@ def _draw_planned_element_direct(
     draw = ImageDraw.Draw(image, "RGBA")
     fill = _rgba(element.fill, element.opacity) if element.fill else None
     stroke = _rgba(element.stroke, element.opacity) if element.stroke else fill
-    line_width = max(1, int(min(width, height) * element.width))
+    line_width = _element_line_width(element, width, height)
 
     if element.kind in {"polyline", "line"}:
         points = _scaled_points(element.points, width, height)
         if len(points) >= 2 and stroke:
             draw.line(points, fill=stroke, width=line_width, joint="curve")
+        return
+
+    if element.kind == "arrow":
+        points = _scaled_points(element.points, width, height)
+        if len(points) >= 2 and stroke:
+            _draw_element_arrow(draw, points, stroke=stroke, line_width=line_width)
+        return
+
+    if element.kind in {"text", "label"}:
+        _draw_element_text(draw, element, width, height, fill=fill or stroke)
         return
 
     if element.kind == "path":
@@ -409,6 +419,26 @@ def _draw_planned_element_direct(
             draw.ellipse(bbox, fill=fill, outline=stroke, width=line_width if stroke else 1)
         return
 
+    if element.kind in {"rounded_rectangle", "rounded-rectangle", "roundrect"}:
+        bbox = _element_bbox(element, width, height)
+        radius = _element_corner_radius(element, bbox, width, height)
+        if element.gradient:
+            _apply_element_gradient(
+                image,
+                element.gradient,
+                _shape_mask(image.size, element.opacity, rounded_rectangle=(bbox, radius)),
+                bbox,
+            )
+            if stroke:
+                draw.rounded_rectangle(bbox, radius=radius, outline=stroke, width=line_width)
+        else:
+            draw.rounded_rectangle(bbox, radius=radius, fill=fill, outline=stroke, width=line_width if stroke else 1)
+        return
+
+    if element.kind == "aperture":
+        _draw_element_aperture(draw, element, width, height, fill=fill, stroke=stroke, line_width=line_width)
+        return
+
     if element.kind in {"rectangle", "rect"}:
         bbox = _element_bbox(element, width, height)
         if element.gradient:
@@ -423,12 +453,169 @@ def _draw_planned_element_direct(
         _draw_element_glow(draw, element, width, height)
         return
 
+    if element.kind == "sparkle":
+        _draw_element_sparkle(draw, element, width, height, fill=fill, stroke=stroke, line_width=line_width)
+        return
+
     if element.kind == "arc":
         bbox = _element_bbox(element, width, height)
         start = float(element.extra.get("start", 0))
         end = float(element.extra.get("end", 180))
         if stroke:
             draw.arc(bbox, start=start, end=end, fill=stroke, width=line_width)
+
+
+def _draw_element_arrow(
+    draw: ImageDraw.ImageDraw,
+    points: list[tuple[int, int]],
+    *,
+    stroke: tuple[int, int, int, int],
+    line_width: int,
+) -> None:
+    draw.line(points, fill=stroke, width=line_width, joint="curve")
+    end = points[-1]
+    start = points[-2]
+    for candidate_start, candidate_end in zip(reversed(points[:-1]), reversed(points[1:])):
+        if candidate_start != candidate_end:
+            start = candidate_start
+            end = candidate_end
+            break
+    angle = math.atan2(end[1] - start[1], end[0] - start[0])
+    head_length = max(line_width * 3.5, 8.0)
+    head_spread = math.radians(28.0)
+    left = (
+        int(round(end[0] - (head_length * math.cos(angle - head_spread)))),
+        int(round(end[1] - (head_length * math.sin(angle - head_spread)))),
+    )
+    right = (
+        int(round(end[0] - (head_length * math.cos(angle + head_spread)))),
+        int(round(end[1] - (head_length * math.sin(angle + head_spread)))),
+    )
+    draw.polygon([end, left, right], fill=stroke)
+
+
+def _draw_element_text(
+    draw: ImageDraw.ImageDraw,
+    element: PlannedElement,
+    width: int,
+    height: int,
+    *,
+    fill: tuple[int, int, int, int] | None,
+) -> None:
+    text = str(element.extra.get("text") or element.label or "").strip()
+    if not text or fill is None:
+        return
+    font_size = max(8, int(round(min(width, height) * max(0.035, element.height))))
+    font = _load_diagram_font(font_size)
+    x = int(round(element.x * width))
+    y = int(round(element.y * height))
+    stroke_fill = _rgba(element.stroke, element.opacity) if element.stroke else None
+    stroke_width = max(0, int(round(font_size * 0.08))) if stroke_fill else 0
+    anchor = str(element.extra.get("anchor", "mm"))
+    draw.text((x, y), text, font=font, fill=fill, anchor=anchor, stroke_width=stroke_width, stroke_fill=stroke_fill)
+
+
+def _load_diagram_font(size: int) -> ImageFont.ImageFont:
+    for font_name in ("arial.ttf", "DejaVuSans.ttf"):
+        try:
+            return ImageFont.truetype(font_name, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _draw_element_sparkle(
+    draw: ImageDraw.ImageDraw,
+    element: PlannedElement,
+    width: int,
+    height: int,
+    *,
+    fill: tuple[int, int, int, int] | None,
+    stroke: tuple[int, int, int, int] | None,
+    line_width: int,
+) -> None:
+    color = fill or stroke
+    if color is None:
+        return
+
+    cx = int(round(element.x * width))
+    cy = int(round(element.y * height))
+    outer_x = max(2, int(round(element.width * width / 2)))
+    outer_y = max(2, int(round(element.height * height / 2)))
+    inner_ratio = _float_extra(element.extra, "inner", 0.34)
+    inner_ratio = max(0.12, min(0.65, inner_ratio))
+    inner_x = max(1, int(round(outer_x * inner_ratio)))
+    inner_y = max(1, int(round(outer_y * inner_ratio)))
+    points = [
+        (cx, cy - outer_y),
+        (cx + inner_x, cy - inner_y),
+        (cx + outer_x, cy),
+        (cx + inner_x, cy + inner_y),
+        (cx, cy + outer_y),
+        (cx - inner_x, cy + inner_y),
+        (cx - outer_x, cy),
+        (cx - inner_x, cy - inner_y),
+    ]
+    draw.polygon(points, fill=color)
+    if stroke and stroke != color:
+        draw.line([*points, points[0]], fill=stroke, width=line_width, joint="curve")
+
+
+def _draw_element_aperture(
+    draw: ImageDraw.ImageDraw,
+    element: PlannedElement,
+    width: int,
+    height: int,
+    *,
+    fill: tuple[int, int, int, int] | None,
+    stroke: tuple[int, int, int, int] | None,
+    line_width: int,
+) -> None:
+    color = stroke or fill
+    if color is None:
+        return
+
+    bbox = _element_bbox(element, width, height)
+    draw.ellipse(bbox, fill=fill, outline=color, width=line_width)
+    left, top, right, bottom = bbox
+    cx = (left + right) / 2
+    cy = (top + bottom) / 2
+    outer_rx = max(2.0, (right - left) / 2 - line_width)
+    outer_ry = max(2.0, (bottom - top) / 2 - line_width)
+    inner_ratio = max(0.22, min(0.52, _float_extra(element.extra, "inner", 0.34)))
+    inner_rx = outer_rx * inner_ratio
+    inner_ry = outer_ry * inner_ratio
+    inner_bbox = (
+        int(round(cx - inner_rx)),
+        int(round(cy - inner_ry)),
+        int(round(cx + inner_rx)),
+        int(round(cy + inner_ry)),
+    )
+
+    try:
+        blades = int(element.extra.get("blades", 6))
+    except (TypeError, ValueError):
+        blades = 6
+    blades = max(5, min(9, blades))
+    try:
+        rotation = math.radians(float(element.extra.get("rotation", -90.0)))
+    except (TypeError, ValueError):
+        rotation = math.radians(-90.0)
+    step = (math.pi * 2) / blades
+    for index in range(blades):
+        angle = rotation + step * index
+        outer_angle = angle + step * 0.68
+        inner_point = (
+            int(round(cx + math.cos(angle) * inner_rx)),
+            int(round(cy + math.sin(angle) * inner_ry)),
+        )
+        outer_point = (
+            int(round(cx + math.cos(outer_angle) * outer_rx)),
+            int(round(cy + math.sin(outer_angle) * outer_ry)),
+        )
+        draw.line([inner_point, outer_point], fill=color, width=line_width, joint="curve")
+
+    draw.ellipse(inner_bbox, fill=fill, outline=color, width=line_width)
 
 
 def _draw_planned_terrain(
@@ -1165,6 +1352,7 @@ def _shape_mask(
     opacity: float,
     *,
     rectangle: tuple[int, int, int, int] | None = None,
+    rounded_rectangle: tuple[tuple[int, int, int, int], int] | None = None,
     ellipse: tuple[int, int, int, int] | None = None,
     polygon: list[tuple[int, int]] | None = None,
 ) -> Image.Image:
@@ -1173,6 +1361,9 @@ def _shape_mask(
     alpha = max(0, min(255, int(round(opacity * 255))))
     if rectangle is not None:
         draw.rectangle(rectangle, fill=alpha)
+    elif rounded_rectangle is not None:
+        bbox, radius = rounded_rectangle
+        draw.rounded_rectangle(bbox, radius=radius, fill=alpha)
     elif ellipse is not None:
         draw.ellipse(ellipse, fill=alpha)
     elif polygon:
@@ -1609,6 +1800,32 @@ def _element_bbox(element: PlannedElement, width: int, height: int) -> tuple[int
     half_w = max(1, int(element.width * width / 2))
     half_h = max(1, int(element.height * height / 2))
     return cx - half_w, cy - half_h, cx + half_w, cy + half_h
+
+
+def _element_line_width(element: PlannedElement, width: int, height: int) -> int:
+    raw_width = element.extra.get("stroke_width", element.extra.get("line_width"))
+    if raw_width is not None:
+        try:
+            relative = float(raw_width)
+        except (TypeError, ValueError):
+            relative = 0.006
+    elif element.kind in {"polyline", "line", "arrow", "path", "polygon", "arc"}:
+        relative = element.width
+    else:
+        relative = 0.006
+    return max(1, int(round(min(width, height) * max(0.001, min(1.0, relative)))))
+
+
+def _element_corner_radius(
+    element: PlannedElement,
+    bbox: tuple[int, int, int, int],
+    width: int,
+    height: int,
+) -> int:
+    left, top, right, bottom = bbox
+    max_radius = max(1, min(right - left, bottom - top) // 2)
+    radius = max(0.0, min(1.0, _float_extra(element.extra, "radius", 0.18)))
+    return max(1, min(max_radius, int(round(min(width, height) * radius))))
 
 
 def _rgba(color: RGB | None, opacity: float) -> tuple[int, int, int, int] | None:

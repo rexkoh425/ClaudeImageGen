@@ -780,6 +780,197 @@ def test_scene_plan_elements_render_with_z_order(tmp_path: Path):
     assert rectangle_only[0] > 200
 
 
+def test_scene_plan_text_elements_render_labels_for_diagrams(tmp_path: Path):
+    plan_path = tmp_path / "text-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude labeled diagram",
+                "palette": ["#ffffff", "#102040"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "text",
+                        "text": "API",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "size": 0.18,
+                        "fill": "#102040",
+                        "opacity": 1.0,
+                        "z": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = parse_scene_plan(plan_path)
+
+    image = render_scene_plan(plan, width=140, height=90)
+    label_region = image.crop((48, 30, 92, 60))
+    changed = sum(1 for pixel in label_region.getdata() if pixel != (255, 255, 255))
+
+    assert changed > 20
+
+
+def test_scene_plan_arrow_elements_render_directional_connectors(tmp_path: Path):
+    plan_path = tmp_path / "arrow-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude arrow diagram",
+                "palette": ["#ffffff", "#203050"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "arrow",
+                        "points": [[0.18, 0.52], [0.82, 0.52]],
+                        "stroke": "#203050",
+                        "width": 0.035,
+                        "opacity": 1.0,
+                        "z": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = parse_scene_plan(plan_path)
+
+    image = render_scene_plan(plan, width=140, height=90)
+    shaft = image.getpixel((70, 47))
+    arrow_head = image.crop((108, 38, 124, 56))
+    dark_head_pixels = sum(1 for r, g, b in arrow_head.getdata() if r < 80 and g < 100 and b < 130)
+
+    assert shaft[0] < 80 and shaft[1] < 100 and shaft[2] < 130
+    assert dark_head_pixels > 20
+
+
+def test_scene_plan_shape_stroke_width_does_not_replace_geometry_width(tmp_path: Path):
+    plan_path = tmp_path / "stroke-width-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude thin ring",
+                "palette": ["#ffffff", "#1c6b78"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "ellipse",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "width": 0.62,
+                        "height": 0.62,
+                        "stroke": "#1c6b78",
+                        "stroke_width": 0.025,
+                        "opacity": 1.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = parse_scene_plan(plan_path)
+
+    image = render_scene_plan(plan, width=120, height=120)
+    top_ring = image.getpixel((60, 23))
+    center = image.getpixel((60, 60))
+
+    assert top_ring[0] < 60 and top_ring[1] > 80
+    assert center == (255, 255, 255)
+
+
+def test_scene_plan_rounded_rectangle_and_sparkle_render_icon_primitives(tmp_path: Path):
+    plan_path = tmp_path / "icon-primitives-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude icon primitives",
+                "palette": ["#ffffff", "#073532", "#f6fff8"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "rounded_rectangle",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "width": 0.72,
+                        "height": 0.72,
+                        "radius": 0.14,
+                        "fill": "#073532",
+                        "stroke": "#2ac49a",
+                        "stroke_width": 0.018,
+                        "z": 1,
+                    },
+                    {
+                        "type": "sparkle",
+                        "x": 0.72,
+                        "y": 0.30,
+                        "width": 0.16,
+                        "height": 0.16,
+                        "fill": "#f6fff8",
+                        "z": 2,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = parse_scene_plan(plan_path)
+
+    image = render_scene_plan(plan, width=120, height=120)
+    rounded_corner = image.getpixel((18, 18))
+    panel_center = image.getpixel((60, 60))
+    sparkle_center = image.getpixel((86, 36))
+
+    assert rounded_corner == (255, 255, 255)
+    assert panel_center[1] > panel_center[0]
+    assert sparkle_center[0] > 220 and sparkle_center[1] > 220 and sparkle_center[2] > 220
+
+
+def test_scene_plan_aperture_renders_crisp_camera_icon_lens(tmp_path: Path):
+    plan_path = tmp_path / "aperture-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude aperture primitive",
+                "palette": ["#ffffff", "#0d5969", "#f4fffb"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "aperture",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "width": 0.62,
+                        "height": 0.62,
+                        "fill": "#f4fffb",
+                        "stroke": "#0d5969",
+                        "stroke_width": 0.022,
+                        "blades": 6,
+                        "z": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plan = parse_scene_plan(plan_path)
+
+    image = render_scene_plan(plan, width=120, height=120)
+    lens_region = image.crop((24, 24, 96, 96))
+    dark_pixels = sum(1 for r, g, b in lens_region.getdata() if r < 45 and g > 70 and b > 80)
+    center = image.getpixel((60, 60))
+    background = image.getpixel((8, 8))
+
+    assert dark_pixels > 180
+    assert center[0] > 220 and center[1] > 235 and center[2] > 230
+    assert background == (255, 255, 255)
+
+
 def test_scene_plan_path_elements_render_curved_filled_shapes(tmp_path: Path):
     plan_path = tmp_path / "scene-plan.json"
     plan_path.write_text(
