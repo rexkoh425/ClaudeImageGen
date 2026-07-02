@@ -25,11 +25,13 @@ The first use may set up more than expected because the plugin checks Python, cr
 
 ## Update To New Release
 
-Run the install command again, then restart Claude Code:
+Use the update command, then restart Claude Code:
 
-```text
-/plugin install claude-imagegen@claude-imagegen
+```bash
+claude plugin update claude-imagegen@claude-imagegen --scope user
 ```
+
+For this repo only, use `claude plugin update claude-imagegen@claude-imagegen --scope project`.
 
 ## Install On Another Machine
 

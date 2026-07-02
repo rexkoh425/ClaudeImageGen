@@ -165,6 +165,7 @@ def test_readme_documents_claude_plugin_install_flow():
     assert "## Install On Another Machine" in readme
     assert "## Run It Locally From This Repo" in readme
     assert "For normal Claude Code use, stop here." in readme
+    assert "claude plugin update claude-imagegen@claude-imagegen" in readme
     assert "Best Result Loop" in readme
     assert "Claude does the planning and critique" in readme
     assert "Claude ImageGen is available through the Claude Code plugin marketplace" in readme
