@@ -126,6 +126,8 @@ Then open the new `pair-evaluation-request.json` and compare the before/after im
     { "action": "recolor_object", "type": "ocean", "color": "#1d5fa8" },
     { "action": "move_object", "type": "sun", "x": 0.28, "y": 0.24 },
     { "action": "remove_object", "type": "robot" },
+    { "action": "update_element", "label": "box gate", "set": { "fill": "#102040", "stroke": "#f5c451" } },
+    { "action": "update_element", "text": "Final PNG", "set": { "y": 0.69, "size": 0.024 } },
     { "action": "adjust_style", "field": "contrast", "delta": 0.15 },
     { "action": "set_style", "field": "saturation", "value": 0.5 },
     { "action": "set_palette", "colors": ["#102040", "#ff5533", "#286fc4"] }
@@ -135,7 +137,9 @@ Then open the new `pair-evaluation-request.json` and compare the before/after im
 
 Edit actions map to scene-plan JSON changes: `add_object`, `remove_object`, `recolor_object`,
 `move_object`, `resize_object`, `set_opacity`, `set_style`, `adjust_style`, `set_palette`,
-`add_element`, `add_cloud`. Unknown actions are skipped, not fatal, so Claude can also just
+`add_element`, `update_element`, `add_cloud`. Use `update_element` with `label`, `text`, or `type`
+selectors when a diagram critique names an existing tile, label, badge, arrow, or final-image
+element that should be moved, recolored, resized, or restyled. Unknown actions are skipped, not fatal, so Claude can also just
 rewrite `scene-plan.json` directly and pass it with `--scene-plan` when a large change is needed.
 
 ## Workflow

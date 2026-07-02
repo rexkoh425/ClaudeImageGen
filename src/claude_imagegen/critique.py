@@ -43,6 +43,7 @@ _KNOWN_ACTIONS = {
     "adjust_style",
     "set_palette",
     "add_element",
+    "update_element",
     "add_cloud",
 }
 
@@ -595,6 +596,28 @@ def _edit_add_element(plan: dict[str, Any], edit: dict[str, Any]) -> str:
     return f"added element '{str(element.get('type', 'shape'))}'"
 
 
+def _edit_update_element(plan: dict[str, Any], edit: dict[str, Any]) -> str:
+    updates = edit.get("set")
+    if not isinstance(updates, dict) or not updates:
+        return "skipped update_element without set object"
+
+    selector = _element_selector(edit)
+    if not selector:
+        return "skipped update_element without label/text/type selector"
+
+    count = 0
+    for element in _list_field(plan, "elements"):
+        if not isinstance(element, dict) or not _element_matches(element, selector):
+            continue
+        for key, value in updates.items():
+            if str(key).strip():
+                element[str(key)] = value
+        count += 1
+
+    description = ", ".join(f"{key}={value}" for key, value in selector.items())
+    return f"updated {count} element(s) matching {description}" if count else f"no element matched {description}"
+
+
 def _edit_add_cloud(plan: dict[str, Any], edit: dict[str, Any]) -> str:
     cloud = edit.get("cloud")
     if isinstance(cloud, dict):
@@ -713,6 +736,26 @@ def _element_check_failed(check: dict[str, Any]) -> bool:
     return confidence < 0.5
 
 
+def _element_selector(edit: dict[str, Any]) -> dict[str, str]:
+    selector: dict[str, str] = {}
+    for key in ("label", "text", "type", "kind"):
+        value = edit.get(key)
+        if value is not None and str(value).strip():
+            selector[key] = str(value).strip().lower()
+    return selector
+
+
+def _element_matches(element: dict[str, Any], selector: dict[str, str]) -> bool:
+    for key, expected in selector.items():
+        if key in {"type", "kind"}:
+            actual = str(element.get("type", element.get("kind", ""))).strip().lower()
+        else:
+            actual = str(element.get(key, "")).strip().lower()
+        if actual != expected:
+            return False
+    return True
+
+
 def _bool_or_none(value: object) -> bool | None:
     if isinstance(value, bool):
         return value
@@ -743,6 +786,7 @@ _EDIT_HANDLERS = {
     "adjust_style": _edit_adjust_style,
     "set_palette": _edit_set_palette,
     "add_element": _edit_add_element,
+    "update_element": _edit_update_element,
     "add_cloud": _edit_add_cloud,
 }
 

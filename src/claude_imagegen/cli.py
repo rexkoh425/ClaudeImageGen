@@ -703,7 +703,18 @@ def main(argv: list[str] | None = None) -> int:
             for dependency in status["diffusion_dependencies"]:
                 state = "ok" if dependency["available"] else "missing"
                 print(f"{dependency['name']} {state}")
-            print('Install diffusion extras with: python -m pip install -e ".[diffusion]"')
+            cuda_visible = status.get("cuda_visible")
+            if cuda_visible is None:
+                print("CUDA visible unknown")
+            else:
+                print(f"CUDA visible {'yes' if cuda_visible else 'no'}")
+                print(f"CUDA device count {status.get('cuda_device_count', 0)}")
+                if status.get("cuda_device_name"):
+                    print(f"CUDA device {status['cuda_device_name']}")
+            if not status["diffusion_ready"]:
+                print('Next diffusion setup: python -m pip install -e ".[diffusion]"')
+            elif not cuda_visible:
+                print("GPU not visible to Torch; CPU diffusion can still run, GPU needs CUDA-enabled Torch.")
         return 0 if status["ready"] else 1
 
     parser.error(f"Unknown command: {args.command}")
@@ -768,7 +779,31 @@ def _setup_status(*, include_diffusion: bool = False) -> dict[str, object]:
         ]
         status["diffusion_dependencies"] = diffusion_statuses
         status["diffusion_ready"] = all(bool(dependency["available"]) for dependency in diffusion_statuses)
+        status.update(_cuda_status(torch_available=any(dependency["name"] == "torch" and dependency["available"] for dependency in diffusion_statuses)))
     return status
+
+
+def _cuda_status(*, torch_available: bool) -> dict[str, object]:
+    if not torch_available:
+        return {"cuda_visible": None, "cuda_device_count": 0, "cuda_device_name": None}
+    try:
+        import torch
+
+        cuda_visible = bool(torch.cuda.is_available())
+        device_count = int(torch.cuda.device_count()) if cuda_visible else 0
+        device_name = torch.cuda.get_device_name(0) if device_count else None
+        return {
+            "cuda_visible": cuda_visible,
+            "cuda_device_count": device_count,
+            "cuda_device_name": device_name,
+        }
+    except Exception as exc:  # pragma: no cover - depends on local Torch/CUDA install
+        return {
+            "cuda_visible": None,
+            "cuda_device_count": 0,
+            "cuda_device_name": None,
+            "cuda_error": str(exc),
+        }
 
 
 if __name__ == "__main__":

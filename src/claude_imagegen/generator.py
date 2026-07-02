@@ -70,6 +70,41 @@ class CandidateSnapshot:
     met_threshold: bool
 
 
+GRAPHIC_PROMPT_TOKENS = {
+    "architecture",
+    "badge",
+    "diagram",
+    "flow",
+    "flowchart",
+    "icon",
+    "infographic",
+    "label",
+    "logo",
+    "pipeline",
+    "schematic",
+    "ui",
+}
+HARD_EDGE_ELEMENT_KINDS = {
+    "aperture",
+    "arc",
+    "arrow",
+    "circle",
+    "ellipse",
+    "label",
+    "line",
+    "path",
+    "polygon",
+    "polyline",
+    "rect",
+    "rectangle",
+    "rounded-rectangle",
+    "rounded_rectangle",
+    "roundrect",
+    "sparkle",
+    "text",
+}
+
+
 def generate_image(options: GenerateOptions) -> GenerateResult:
     if not options.prompt.strip():
         raise ValueError("prompt must not be empty")
@@ -87,6 +122,11 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
     spec = parse_prompt(options.prompt)
     scene_plan = parse_scene_plan(options.scene_plan) if options.scene_plan else None
     _validate_prompt_scene_plan_semantics(options, spec=spec, scene_plan=scene_plan)
+    initial_blend_applied, initial_blend_reason = _initial_image_blend_decision(
+        options.initial_image,
+        spec=spec,
+        scene_plan=scene_plan,
+    )
     candidate = build_initial_candidate(
         spec,
         seed=options.seed,
@@ -109,7 +149,7 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
             if scene_plan
             else render_candidate(candidate, width=width, height=height)
         )
-        image = _blend_initial_image(image, options.initial_image)
+        image = _blend_initial_image(image, options.initial_image, blend=initial_blend_applied)
         score = score_image(
             image,
             spec,
@@ -230,6 +270,8 @@ def generate_image(options: GenerateOptions) -> GenerateResult:
         "reference_score": round(best_score.reference_score, 6),
         "initial_similarity_score": initial_similarity["continuity_score"] if initial_similarity else None,
         "initial_similarity_details": initial_similarity,
+        "initial_image_blend_applied": initial_blend_applied,
+        "initial_image_blend_reason": initial_blend_reason,
         "image_detail_score": detail_metrics["detail_score"],
         "image_detail_metrics": detail_metrics,
         "score_details": {key: round(value, 6) for key, value in best_score.details.items()},
@@ -405,11 +447,45 @@ def _scene_plan_semantic_tokens(scene_plan: ScenePlan) -> set[str]:
     }
 
 
-def _blend_initial_image(image: Image.Image, initial_image: Path | None) -> Image.Image:
+def _initial_image_blend_decision(
+    initial_image: Path | None,
+    *,
+    spec: object,
+    scene_plan: ScenePlan | None,
+) -> tuple[bool, str | None]:
+    if not initial_image:
+        return False, None
+    if not initial_image.exists():
+        raise FileNotFoundError(f"Initial image not found: {initial_image}")
+    if scene_plan is None:
+        return True, "initial image blend applied for candidate continuity"
+
+    prompt_tokens = set(getattr(spec, "tokens", ()))
+    hard_edge_kinds = {element.kind for element in scene_plan.elements} & HARD_EDGE_ELEMENT_KINDS
+    contains_text = any(
+        element.kind in {"text", "label"} or isinstance(element.extra.get("text"), str)
+        for element in scene_plan.elements
+    )
+    if hard_edge_kinds or contains_text or (prompt_tokens & GRAPHIC_PROMPT_TOKENS):
+        reason_bits = []
+        if hard_edge_kinds:
+            reason_bits.append("hard-edge scene-plan elements")
+        if contains_text:
+            reason_bits.append("text labels")
+        if prompt_tokens & GRAPHIC_PROMPT_TOKENS:
+            reason_bits.append("graphic prompt terms")
+        return False, "skipped initial image blend for " + ", ".join(reason_bits)
+
+    return True, "initial image blend applied for scene continuity"
+
+
+def _blend_initial_image(image: Image.Image, initial_image: Path | None, *, blend: bool) -> Image.Image:
     if not initial_image:
         return image
     if not initial_image.exists():
         raise FileNotFoundError(f"Initial image not found: {initial_image}")
+    if not blend:
+        return image
     with Image.open(initial_image) as existing:
         base = existing.convert("RGB").resize(image.size)
     return Image.blend(base, image, 0.56)

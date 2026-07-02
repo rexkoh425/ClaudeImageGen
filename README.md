@@ -6,36 +6,40 @@ The default renderer is CPU-first and lightweight. For stronger photoreal detail
 
 ## Install In Claude Code
 
-Claude ImageGen is available through the Claude Code plugin marketplace from this GitHub repo.
+Claude ImageGen is available through the Claude Code plugin marketplace from this GitHub repo. You do not need to clone the repo for normal Claude Code use.
 
-Fastest setup: on this machine or On another machine, install Claude Code, sign in to GitHub if this repo is private, then run this inside Claude Code:
+Fastest setup on this machine:
 
 ```text
 /plugin marketplace add rexkoh425/ClaudeImageGen
 /plugin install claude-imagegen@claude-imagegen
 ```
 
-Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. To update after a new release, run the same install command again and restart.
+On another machine, install Claude Code first, sign in to GitHub if this repo is private, then run the same two commands in Claude Code.
+
+Restart Claude Code after installation so the `generate-image` skill and `claude-imagegen` command are loaded. To update after a new release, run `/plugin install claude-imagegen@claude-imagegen` again and restart.
 
 After restart, ask Claude Code: `Use the generate-image skill to create <your prompt> with multi-refinement and a 0.9 gate`. Claude does the planning and critique; your machine does the CPU/GPU rendering.
 
 ## Local Setup
 
-Fastest local setup from a clone of this repo:
+Use this only when developing from a clone of this repo.
+
+CPU setup:
 
 ```bash
 python -m pip install -e .
 claude-imagegen setup
 ```
 
-For higher-detail local diffusion and CUDA checks:
+Optional GPU/photoreal setup:
 
 ```bash
 python -m pip install -e ".[diffusion]"
 claude-imagegen setup --with-diffusion
 ```
 
-`setup` reports missing Python packages, optional Diffusers/Torch packages, and CUDA visibility.
+`setup` reports missing Python packages, optional Diffusers/Torch packages, CUDA visibility, and the next install command when something is missing.
 
 ## Best Result Loop
 

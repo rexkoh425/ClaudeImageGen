@@ -140,6 +140,60 @@ def test_apply_recolor_move_resize_and_style() -> None:
     assert abs(revised["style"]["saturation"] - 0.6) < 1e-9
 
 
+def test_apply_update_element_by_label_or_text() -> None:
+    plan = {
+        "elements": [
+            {
+                "type": "rounded_rectangle",
+                "label": "box gate",
+                "x": 0.4,
+                "y": 0.62,
+                "width": 0.18,
+                "height": 0.14,
+                "fill": "#3d3018",
+                "stroke": "#d0a24d",
+            },
+            {
+                "type": "text",
+                "label": "t final label",
+                "text": "Final PNG",
+                "x": 0.13,
+                "y": 0.72,
+                "fill": "#aee4ff",
+            },
+        ]
+    }
+    critique = parse_critique(
+        {
+            "edits": [
+                {
+                    "action": "update_element",
+                    "label": "box gate",
+                    "set": {"fill": "#102040", "stroke": "#f5c451", "opacity": 0.94},
+                },
+                {
+                    "action": "update_element",
+                    "text": "Final PNG",
+                    "set": {"y": 0.69, "size": 0.024},
+                },
+            ]
+        }
+    )
+
+    revised, actions = apply_critique_to_plan_dict(plan, critique)
+
+    gate = revised["elements"][0]
+    final_label = revised["elements"][1]
+    assert gate["fill"] == "#102040"
+    assert gate["stroke"] == "#f5c451"
+    assert gate["opacity"] == 0.94
+    assert final_label["y"] == 0.69
+    assert final_label["size"] == 0.024
+    assert any("updated 1 element(s)" in action and "box gate" in action for action in actions)
+    assert any("updated 1 element(s)" in action and "final png" in action for action in actions)
+    assert plan["elements"][0]["fill"] == "#3d3018"
+
+
 def test_apply_set_palette_and_add_cloud() -> None:
     critique = parse_critique(
         {
@@ -348,6 +402,7 @@ def test_write_critique_request_records_expected_judge_payload(tmp_path) -> None
     assert request["expected_response"]["edits"] == []
     assert "add_cloud" in request["allowed_edit_actions"]
     assert "resize_object" in request["allowed_edit_actions"]
+    assert "update_element" in request["allowed_edit_actions"]
     assert known_edit_actions() == sorted(request["allowed_edit_actions"])
 
 

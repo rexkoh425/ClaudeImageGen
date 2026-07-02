@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = "0.1.15"
+EXPECTED_VERSION = "0.1.16"
 
 
 def test_plugin_manifest_has_required_metadata():
@@ -103,6 +103,7 @@ def test_claude_skill_and_executable_are_present():
     assert "comparison-request.json" in skill_text
     assert "refine --critique" in skill_text
     assert "refine --comparison" in skill_text
+    assert "`update_element`" in skill_text
     assert "visual_comparison" in skill_text
     assert "visual_checklist" in skill_text
     assert "element_checks" in skill_text

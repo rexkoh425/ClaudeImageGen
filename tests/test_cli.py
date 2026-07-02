@@ -161,6 +161,40 @@ def test_cli_accepts_siglip_similarity_backend_options():
     assert diffuse_args.quality_target == 0.9
 
 
+def test_setup_command_prints_diffusion_and_cuda_next_steps(monkeypatch, capsys):
+    from claude_imagegen import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module,
+        "_setup_status",
+        lambda *, include_diffusion: {
+            "ready": True,
+            "python_version": "3.12.0",
+            "python_executable": "python",
+            "dependencies": [
+                {"name": "numpy", "available": True},
+                {"name": "Pillow", "available": True},
+            ],
+            "diffusion_ready": False,
+            "diffusion_dependencies": [
+                {"name": "torch", "available": False},
+                {"name": "diffusers", "available": False},
+            ],
+            "cuda_visible": None,
+            "cuda_device_count": 0,
+            "cuda_device_name": None,
+        },
+    )
+
+    exit_code = cli_module.main(["setup", "--with-diffusion"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Diffusion optional incomplete" in captured.out
+    assert "CUDA visible unknown" in captured.out
+    assert 'Next diffusion setup: python -m pip install -e ".[diffusion]"' in captured.out
+
+
 def test_cli_generate_writes_image_metadata_progress_and_optional_pixels(tmp_path: Path):
     output_dir = tmp_path / "generated"
     root = Path(__file__).resolve().parents[1]
@@ -1093,6 +1127,93 @@ def test_cli_refine_records_and_applies_visual_critique(tmp_path: Path):
     assert refined_plan["objects"][0]["size"] == 0.2
     assert "visual_judgement" in {check["name"] for check in quality_report["checks"]}
     assert any("Judge: add missing elements: clouds." == action for action in quality_report["next_actions"])
+
+
+def test_refine_diagram_scene_plan_does_not_blend_old_label_ghosts(tmp_path: Path):
+    from claude_imagegen.generator import GenerateOptions, generate_image
+    from claude_imagegen.refine import RefineOptions, refine_image
+
+    prompt = "architecture diagram with final PNG label"
+    base_dir = tmp_path / "base-diagram-label"
+    base_plan = tmp_path / "base-scene-plan.json"
+    base_plan.write_text(
+        json.dumps(
+            {
+                "title": "diagram label ghost regression",
+                "palette": ["#ffffff", "#000000"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "elements": [
+                    {
+                        "type": "text",
+                        "label": "final label",
+                        "text": "Final PNG",
+                        "x": 0.5,
+                        "y": 0.80,
+                        "size": 0.08,
+                        "fill": "#000000",
+                        "align": "center",
+                    }
+                ],
+                "style": {"antialias": 1.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    generate_image(
+        GenerateOptions(
+            prompt=prompt,
+            output_dir=base_dir,
+            scene_plan=base_plan,
+            width=220,
+            height=140,
+            max_iterations=1,
+            threshold=0.1,
+            caption_backend="none",
+            auto_refine=False,
+        )
+    )
+
+    critique_path = tmp_path / "move-label.json"
+    critique_path.write_text(
+        json.dumps(
+            {
+                "closeness_score": 0.7,
+                "verdict": "revise",
+                "edits": [
+                    {
+                        "action": "update_element",
+                        "label": "final label",
+                        "set": {"y": 0.24},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    refined_dir = tmp_path / "refined-diagram-label"
+    refine_image(
+        RefineOptions(
+            from_dir=base_dir,
+            prompt=prompt,
+            output_dir=refined_dir,
+            critique=critique_path,
+            width=220,
+            height=140,
+            max_iterations=1,
+            threshold=0.1,
+            caption_backend="none",
+            auto_refine=False,
+        )
+    )
+
+    image = Image.open(refined_dir / "image.png").convert("RGB")
+    old_label_region = image.crop((50, 96, 170, 126))
+    dark_pixels = sum(1 for red, green, blue in old_label_region.getdata() if red < 180 and green < 180 and blue < 180)
+    metadata = json.loads((refined_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert dark_pixels < 12
+    assert metadata["initial_image_blend_applied"] is False
+    assert "hard-edge scene-plan elements" in metadata["initial_image_blend_reason"]
 
 
 def test_cli_refine_records_and_applies_visual_comparison(tmp_path: Path):
