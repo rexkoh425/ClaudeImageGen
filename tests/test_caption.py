@@ -134,3 +134,74 @@ def test_local_caption_backcheck_names_greenhouse_scene_primitives(tmp_path: Pat
     assert "floor" not in diagnostics.missing_objects
     assert "lamp" not in diagnostics.missing_objects
     assert result.prompt_similarity_score > 0.45
+
+
+def test_local_caption_backcheck_names_icon_scene_without_greenhouse_bias(tmp_path: Path):
+    prompt = (
+        "minimal high-polish app icon for Claude ImageGen, dark teal rounded square, "
+        "crisp camera aperture lens in the center, one small sparkle accent, clean vector look"
+    )
+    plan_path = tmp_path / "icon-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "captionable icon scene",
+                "palette": ["#06292d", "#21e8d4", "#f3fffb"],
+                "background": {"top": "#06292d", "bottom": "#021417"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "rounded_rectangle",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "width": 0.84,
+                        "height": 0.84,
+                        "radius": 0.17,
+                        "fill": "#06383d",
+                        "stroke": "#21e8d4",
+                        "stroke_width": 0.006,
+                        "z": 1,
+                    },
+                    {
+                        "type": "aperture",
+                        "x": 0.5,
+                        "y": 0.52,
+                        "width": 0.48,
+                        "height": 0.48,
+                        "fill": "#06292d",
+                        "stroke": "#21e8d4",
+                        "stroke_width": 0.021,
+                        "blades": 6,
+                        "inner": 0.45,
+                        "z": 2,
+                    },
+                    {
+                        "type": "sparkle",
+                        "x": 0.72,
+                        "y": 0.30,
+                        "width": 0.12,
+                        "height": 0.12,
+                        "fill": "#f3fffb",
+                        "z": 3,
+                    },
+                ],
+                "style": {"antialias": 1.0, "detail": 0.45, "sharpen": 0.55, "contrast": 0.28},
+            }
+        ),
+        encoding="utf-8",
+    )
+    image = render_scene_plan(parse_scene_plan(plan_path), width=160, height=160, seed=12)
+
+    result = caption_image(image, prompt=prompt, backend="local", device="cpu")
+    diagnostics = caption_prompt_diagnostics(prompt, result.caption)
+
+    assert "app icon" in result.caption
+    assert "aperture lens" in result.caption
+    assert "sparkle" in result.caption
+    assert "greenhouse" not in result.caption
+    assert "ocean" not in result.caption
+    assert "plants" not in result.caption
+    assert "abstract" not in diagnostics.missing_objects
+    assert "teal" not in diagnostics.missing_colors
+    assert diagnostics.unexpected_objects == ()
+    assert result.prompt_similarity_score > 0.32

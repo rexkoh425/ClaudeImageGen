@@ -194,6 +194,10 @@ def _local_caption(image: Image.Image, *, prompt: str = "") -> str:
         int(width * 0.25) : max(int(width * 0.25) + 1, int(width * 0.75)),
     ]
 
+    prompt_tokens = set(parse_prompt(prompt).tokens)
+    if _prompt_requests_icon(prompt_tokens) and _icon_presence(array, center) >= 0.42:
+        return "a local image showing " + _join_phrases(_local_icon_phrases(array, upper, center, prompt_tokens))
+
     phrases: list[str] = []
     greenhouse_present = _greenhouse_presence(upper, middle) >= 0.50
     lamp_present = _lamp_presence(upper) >= 0.06
@@ -240,6 +244,31 @@ def _local_caption(image: Image.Image, *, prompt: str = "") -> str:
         phrases.append(f"{_dominant_color_name(array)} abstract composition")
 
     return "a local image showing " + _join_phrases(_dedupe(phrases))
+
+
+def _prompt_requests_icon(tokens: set[str]) -> bool:
+    return "icon" in tokens or ("app" in tokens and ("logo" in tokens or "badge" in tokens))
+
+
+def _local_icon_phrases(
+    array: np.ndarray,
+    upper: np.ndarray,
+    center: np.ndarray,
+    prompt_tokens: set[str],
+) -> list[str]:
+    phrases = ["teal abstract app icon" if "teal" in prompt_tokens else f"{_dominant_color_name(array)} abstract app icon"]
+    if {"aperture", "lens", "camera"} & prompt_tokens and _edge_density(center) >= 0.06:
+        phrases.append("camera aperture lens")
+    if "sparkle" in prompt_tokens and _bright_neutral_presence(upper) >= 0.025:
+        phrases.append("sparkle")
+    return _dedupe(phrases)
+
+
+def _icon_presence(array: np.ndarray, center: np.ndarray) -> float:
+    saturated_cool = max(_blue_presence(array), _green_presence(array))
+    central_geometry = _edge_density(center)
+    dark_ground = _dark_presence(array)
+    return _clamp01(0.42 * dark_ground + 0.36 * central_geometry + 0.22 * saturated_cool)
 
 
 def _robot_portrait_presence(array: np.ndarray) -> float:

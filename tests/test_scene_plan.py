@@ -425,6 +425,48 @@ def test_parse_scene_plan_normalizes_palette_and_objects(tmp_path: Path):
     assert plan.style["antialias"] == 0.75
 
 
+def test_parse_scene_plan_treats_none_strings_as_absent_optional_colors(tmp_path: Path):
+    plan_path = tmp_path / "none-color-scene-plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "title": "Claude CSS-style optional colors",
+                "palette": ["#ffffff", "#102040"],
+                "background": {"top": "#ffffff", "bottom": "#ffffff"},
+                "objects": [],
+                "elements": [
+                    {
+                        "type": "ellipse",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "width": 0.5,
+                        "height": 0.5,
+                        "fill": "none",
+                        "stroke": "#102040",
+                    },
+                    {
+                        "type": "rectangle",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "width": 0.3,
+                        "height": 0.3,
+                        "fill": "#102040",
+                        "stroke": "transparent",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plan = parse_scene_plan(plan_path)
+
+    assert plan.elements[0].fill is None
+    assert plan.elements[0].stroke == (16, 32, 64)
+    assert plan.elements[1].fill == (16, 32, 64)
+    assert plan.elements[1].stroke is None
+
+
 def test_parse_scene_plan_accepts_utf8_bom_from_powershell(tmp_path: Path):
     plan_path = tmp_path / "scene-plan.json"
     plan_path.write_text(

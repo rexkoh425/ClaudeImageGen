@@ -708,6 +708,8 @@ def _parse_color(value: Any) -> RGB:
 def _parse_optional_color(value: Any) -> RGB | None:
     if value is None:
         return None
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "transparent"}:
+        return None
     return _parse_color(value)
 
 
